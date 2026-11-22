@@ -1,0 +1,99 @@
+/* ==========================================================================
+   数据与接口层相关样式：模式标识、设置页、试运行、调用日志、流式光标等
+   ========================================================================== */
+
+/* ---------- 模式标识（.mode-pill 已迁移至 global.css 顶栏区） ---------- */
+.mode-tag { font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 6px; border: 1px solid rgba(166, 114, 20, 0.4); color: var(--fuel); background: rgba(166, 114, 20, 0.08); white-space: nowrap; }
+.mode-tag.remote { border-color: rgba(29, 116, 83, 0.4); color: var(--ok); background: rgba(29, 116, 83, 0.08); }
+
+/* ---------- 通用状态 ---------- */
+.err { color: var(--cinnabar); margin: 0; }
+.err.small { font-size: 12.5px; }
+.stream-caret { display: inline-block; width: 7px; height: 1.05em; margin-left: 3px; vertical-align: -2px; background: var(--q); border-radius: 1px; animation: blink 0.9s steps(1) infinite; }
+code { font-size: 0.92em; padding: 1px 6px; border-radius: 5px; background: rgba(28, 25, 23, 0.07); }
+
+/* ---------- 三堂会审：实时提问 ---------- */
+.case-tabs.five { grid-template-columns: repeat(5, 1fr); }
+.case-tab.live { border-style: dashed; }
+.case-tab.live small { color: var(--q); }
+.case-tab.live.on { border-color: var(--q); border-style: solid; background: linear-gradient(160deg, rgba(27, 107, 147, 0.14), var(--panel)); }
+.live-ask { display: flex; gap: 12px; align-items: center; }
+.live-ask .search { font-size: 15px; padding: 11px 14px; }
+.model-card.skeleton .sentences { gap: 10px; }
+.sk-line { height: 40px; border-radius: 10px; background: linear-gradient(90deg, rgba(28, 25, 23, 0.035), rgba(28, 25, 23, 0.098), rgba(28, 25, 23, 0.035)); background-size: 200% 100%; animation: shimmer 1.3s linear infinite; }
+.sk-line.short { width: 60%; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* ---------- 双量规：预评依据 ---------- */
+.rb-why { margin-top: 8px !important; padding: 6px 8px; border-radius: 8px; background: rgba(27, 107, 147, 0.07); color: var(--senses) !important; font-size: 11.5px !important; }
+.ai-mark { position: absolute; right: 8px; bottom: 6px; font-family: var(--mono); font-size: 9.5px; padding: 1px 5px; border-radius: 4px; color: var(--q); border: 1px solid rgba(27, 107, 147, 0.5); background: rgba(27, 107, 147, 0.08); }
+
+/* ---------- 安全护栏 ---------- */
+.v-meta { display: block; margin-top: 6px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+/* ---------- 备课：试运行 ---------- */
+.test-drive { margin-top: 18px; padding: 16px; border-radius: 14px; border: 1px solid var(--line-strong); background: var(--panel-subtle); display: flex; flex-direction: column; gap: 12px; }
+.td-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.td-head b { font-family: var(--serif); font-size: 16px; }
+.td-chat { display: flex; flex-direction: column; gap: 10px; min-height: 120px; }
+.td-empty { display: grid; place-items: center; min-height: 120px; color: var(--dim); border: 1px dashed var(--line-strong); border-radius: 12px; font-size: 13px; }
+.bubble { max-width: 82%; padding: 10px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.75; white-space: pre-wrap; }
+.bubble.user { align-self: flex-end; background: rgba(35, 83, 144, 0.07); border: 1px solid rgba(27, 107, 147, 0.35); border-bottom-right-radius: 4px; }
+.bubble.ai { align-self: flex-start; background: rgba(150, 118, 64, 0.07); border: 1px solid rgba(150, 118, 64, 0.16); border-bottom-left-radius: 4px; }
+.bubble.ai.error { border-color: rgba(200, 62, 43, 0.5); }
+.td-check { align-self: flex-start; font-size: 12px; padding: 4px 10px; border-radius: 8px; }
+.td-check.ok { color: var(--ok); background: rgba(29, 116, 83, 0.1); }
+.td-check.bad { color: var(--cinnabar); background: rgba(200, 62, 43, 0.12); }
+.td-usage { align-self: flex-start; font-size: 11px; color: var(--dim); }
+
+/* ---------- 设置页 ---------- */
+.mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.mode-card { position: relative; text-align: left; padding: 20px 22px 20px 50px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--panel); transition: all 0.25s var(--ease); }
+.mode-card b { font-family: var(--serif); font-size: 20px; }
+.mode-card small { margin-left: 10px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.mode-card p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.mc-dot { position: absolute; left: 20px; top: 26px; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-strong); }
+.mode-card.on { border-color: var(--fuel); background: linear-gradient(160deg, rgba(166, 114, 20, 0.12), var(--panel)); }
+.mode-card.remote.on { border-color: var(--ok); background: linear-gradient(160deg, rgba(29, 116, 83, 0.12), var(--panel)); }
+.mode-card.on .mc-dot { border-color: var(--fuel); background: radial-gradient(circle, var(--fuel) 45%, transparent 50%); }
+.mode-card.remote.on .mc-dot { border-color: var(--ok); background: radial-gradient(circle, var(--ok) 45%, transparent 50%); }
+.set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.set-card { padding: 22px; display: flex; flex-direction: column; gap: 12px; }
+.set-fieldset { border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; min-width: 0; transition: opacity 0.25s; }
+.set-fieldset:disabled { opacity: 0.4; }
+.form-row { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
+.form-row .search { color: var(--text); font-size: 13.5px; }
+.form-inline { display: grid; grid-template-columns: 140px 1fr; gap: 16px; align-items: end; }
+.model-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.slot-row { display: grid; grid-template-columns: 26px 1fr 1fr 1.2fr; gap: 8px; align-items: center; }
+.slot-no { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 7px; background: rgba(166, 114, 20, 0.14); color: var(--fuel); font-size: 12px; }
+.slot-row .search { min-width: 0; padding: 8px 10px; font-size: 13px; }
+.backend-row { display: grid; grid-template-columns: 90px auto 1fr; gap: 12px; align-items: center; font-size: 13px; }
+.tele-panel { padding: 22px; }
+.tele-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.tele-wrap { max-height: 360px; overflow: auto; border-radius: 12px; border: 1px solid var(--line); }
+.tele { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tele th { position: sticky; top: 0; background: var(--panel-solid); text-align: left; font-weight: 500; color: var(--muted); font-size: 11.5px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.tele td { padding: 8px 12px; border-bottom: 1px solid rgba(28, 25, 23, 0.042); white-space: nowrap; }
+.tele td.mono { font-size: 11.5px; }
+.tele .tele-detail { white-space: normal; color: var(--muted); max-width: 360px; }
+.tele tr.error td { background: rgba(200, 62, 43, 0.05); }
+.st { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+.st.ok { color: var(--ok); background: rgba(29, 116, 83, 0.12); }
+.st.error { color: var(--cinnabar); background: rgba(200, 62, 43, 0.14); }
+.st.aborted { color: var(--muted); background: rgba(28, 25, 23, 0.07); }
+.contract { padding: 22px; }
+.contract-list { display: grid; gap: 6px; }
+.contract-row { display: grid; grid-template-columns: 70px 290px 1fr auto; gap: 14px; align-items: center; padding: 9px 12px; border-radius: 10px; background: var(--panel-subtle); border: 1px solid var(--line); font-size: 13px; }
+.contract-row code { background: none; padding: 0; color: var(--text); }
+.method { font-family: var(--mono); font-size: 11px; font-weight: 600; text-align: center; padding: 3px 0; border-radius: 6px; }
+.m-get { color: var(--q); background: rgba(27, 107, 147, 0.12); }
+.m-post { color: var(--ok); background: rgba(29, 116, 83, 0.12); }
+.m-patch { color: var(--fuel); background: rgba(166, 114, 20, 0.12); }
+.m-delete { color: var(--cinnabar); background: rgba(200, 62, 43, 0.12); }
+
+@media (max-width: 1280px) {
+  .mode-cards, .set-grid { grid-template-columns: 1fr; }
+  .case-tabs.five { grid-template-columns: repeat(3, 1fr); }
+  .contract-row { grid-template-columns: 70px 1fr; }
+}
