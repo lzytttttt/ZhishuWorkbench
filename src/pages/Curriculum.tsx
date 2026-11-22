@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react';
+import { EmptyState } from '../fun/LineArt';
+import { MARK_META, useLessonMarks, type MarkKind } from '../fun/marks';
+import { pressable } from '../fun/pressable';
+import { play } from '../fun/sound';
+import { Seal, useStamp } from '../fun/Stamp';
 import { LABS, LESSONS, PART_MAP, PARTS, PHASE_MAP, PHASES, PROJECTS, TRACKS, type Lesson } from '../data/curriculum';
 import type { PartId } from '../data/types';
 import { navigate } from '../hooks/useHashRoute';
@@ -7,7 +12,7 @@ import { cv } from '../utils/css';
 
 export default function Curriculum({ sub }: { sub?: string }) {
   const [part, setPart] = useState<PartId | 'all'>('all');
-  const [view, setView] = useState<'matrix' | 'list'>('matrix');
+  const [view, setView] = useState<'matrix' | 'spiral' | 'list'>('matrix');
   const [query, setQuery] = useState('');
   const open = LESSONS.find((l) => l.id === sub);
 
@@ -33,6 +38,9 @@ export default function Curriculum({ sub }: { sub?: string }) {
             <button className={view === 'matrix' ? 'on' : ''} onClick={() => setView('matrix')}>
               矩阵
             </button>
+            <button className={view === 'spiral' ? 'on' : ''} onClick={() => setView('spiral')} title="把四条范式轨道卷成一条认知螺旋">
+              螺旋
+            </button>
             <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>
               列表
             </button>
@@ -51,6 +59,8 @@ export default function Curriculum({ sub }: { sub?: string }) {
           </button>
         ))}
       </div>
+
+      <RouteTray />
 
       {view === 'matrix' ? (
         <div className="matrix panel">
@@ -71,12 +81,14 @@ export default function Curriculum({ sub }: { sub?: string }) {
             <MatrixRow key={tr.id} trackIndex={ti} lessons={lessons} />
           ))}
         </div>
+      ) : view === 'spiral' ? (
+        <SpiralView visible={new Set(lessons.map((l) => l.id))} />
       ) : (
         <div className="lesson-list">
           {lessons.map((l) => (
             <LessonCard key={l.id} lesson={l} wide />
           ))}
-          {!lessons.length && <div className="empty">没有符合条件的课程</div>}
+          {!lessons.length && <EmptyState kind="magnifier" title="放大镜下什么也没找到" hint="换个关键词，或者清空零件筛选。" />}
         </div>
       )}
 
@@ -151,19 +163,282 @@ function MatrixRow({ trackIndex, lessons }: { trackIndex: number; lessons: Lesso
   );
 }
 
+/* 螺旋图：四条范式轨道（L1→L4）由内向外卷成一条螺旋，每一圈依次经过“提问 → 探究 → 判断 → 创造”四个象限 */
+const SP = { size: 760, c: 380, r0: 92, r1: 336 };
+const QUARTERS = TRACKS.length * PHASES.length;
+const spR = (u: number) => SP.r0 + ((SP.r1 - SP.r0) * u) / QUARTERS;
+const spXY = (u: number, r = spR(u)) => {
+  const a = (u * Math.PI) / 2 - Math.PI / 2;
+  return { x: SP.c + Math.cos(a) * r, y: SP.c + Math.sin(a) * r, a };
+};
+
+function SpiralView({ visible }: { visible: Set<string> }) {
+  const marks = useLessonMarks();
+  const [hover, setHover] = useState<string | null>(null);
+  const stations = TRACKS.flatMap((tr, ti) =>
+    PHASES.flatMap((ph, pi) => {
+      const cell = LESSONS.filter((l) => l.track === tr.id && l.phase === ph.id);
+      return cell.map((l, k) => ({ l, u: ti * PHASES.length + pi + (k + 0.5) / cell.length }));
+    }),
+  );
+  const segs = Array.from({ length: QUARTERS }, (_, q) => {
+    const pts: string[] = [];
+    for (let u = q; u <= q + 1.0001; u += 0.05) {
+      const p = spXY(u);
+      pts.push(`${p.x.toFixed(1)},${p.y.toFixed(1)}`);
+    }
+    return { q, d: `M${pts.join(' L')}`, color: PHASES[q % PHASES.length].color };
+  });
+  const hovered = stations.find((s) => s.l.id === hover);
+
+  return (
+    <section className="spiral panel">
+      <svg viewBox={`0 0 ${SP.size} ${SP.size}`} className="spiral-svg" role="img" aria-label="课程螺旋图：由内向外依次是感知体验、提示词工程、上下文工程、工作流工程四条轨道">
+        {PHASES.map((ph, pi) => {
+          const a = (pi * Math.PI) / 2 - Math.PI / 2;
+          const mid = a + Math.PI / 4;
+          return (
+            <g key={ph.id}>
+              <line x1={SP.c} y1={SP.c} x2={SP.c + Math.cos(a) * (SP.r1 + 24)} y2={SP.c + Math.sin(a) * (SP.r1 + 24)} className="sp-axis" />
+              <text x={SP.c + Math.cos(mid) * (SP.r1 + 30)} y={SP.c + Math.sin(mid) * (SP.r1 + 30)} textAnchor="middle" dominantBaseline="middle" className="sp-phase" style={{ fill: ph.color }}>
+                {ph.name}
+                <tspan x={SP.c + Math.cos(mid) * (SP.r1 + 30)} dy="16" className="sp-phase-en">
+                  {ph.role}
+                </tspan>
+              </text>
+            </g>
+          );
+        })}
+        {segs.map((s) => (
+          <path key={s.q} d={s.d} className="sp-track" style={{ stroke: s.color }} />
+        ))}
+        {TRACKS.map((tr, ti) => {
+          const p = spXY(ti * PHASES.length);
+          return (
+            <text key={tr.id} x={p.x - 8} y={p.y - 8} textAnchor="end" className="sp-ring">
+              L{ti + 1} {tr.name}
+            </text>
+          );
+        })}
+        <g className="sp-core">
+          <circle cx={SP.c} cy={SP.c} r={46} />
+          <text x={SP.c} y={SP.c - 4} textAnchor="middle">
+            认知心脏
+          </text>
+          <text x={SP.c} y={SP.c + 14} textAnchor="middle" className="sp-core-en">
+            LLM
+          </text>
+        </g>
+        {stations.map(({ l, u }) => {
+          const p = spXY(u);
+          const lp = spXY(u, spR(u) + 20);
+          const right = Math.cos(p.a) >= 0;
+          const on = visible.has(l.id);
+          const seals = (['taught', 'verified', 'badcase'] as MarkKind[]).filter((k) => marks[k].includes(l.id));
+          return (
+            <g
+              key={l.id}
+              className={`sp-station ${on ? '' : 'dim'} ${hover === l.id ? 'hover' : ''}`}
+              transform={`translate(${p.x} ${p.y})`}
+              style={cv({ '--c': PART_MAP[l.part].color })}
+              {...pressable(() => navigate(`curriculum/${l.id}`))}
+              aria-label={`${l.title}（${PHASE_MAP[l.phase].name}）`}
+              onMouseEnter={() => setHover(l.id)}
+              onMouseLeave={() => setHover(null)}
+              onFocus={() => setHover(l.id)}
+              onBlur={() => setHover(null)}
+            >
+              <circle r={8} className="sp-dot" />
+              {seals.length > 0 && <circle r={12} className="sp-sealed" />}
+              <text x={lp.x - p.x} y={lp.y - p.y} textAnchor={right ? 'start' : 'end'} dominantBaseline="middle" className="sp-label">
+                {Array.from(l.title).length > 9 ? `${Array.from(l.title).slice(0, 9).join('')}…` : l.title}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <aside className="sp-side">
+        {hovered ? (
+          <div className="sp-card" style={cv({ '--c': PART_MAP[hovered.l.part].color })}>
+            <small>
+              {PART_MAP[hovered.l.part].name} · {PHASE_MAP[hovered.l.phase].name} · {TRACKS.find((t) => t.id === hovered.l.track)?.name}
+            </small>
+            <b>{hovered.l.title}</b>
+            <p>“{hovered.l.hook}”</p>
+            <span className="muted small">{hovered.l.hours} 课时 · 点击站点查看详情</span>
+          </div>
+        ) : (
+          <div className="sp-card idle">
+            <b>沿着螺旋走</b>
+            <p>由内向外，每一圈都把“提问 → 探究 → 判断 → 创造”再走一遍，只是认知更深一层。</p>
+            <span className="muted small">悬停站点看钩子；带朱砂圈的站点已盖过章。矩阵仍是默认视图。</span>
+          </div>
+        )}
+      </aside>
+    </section>
+  );
+}
+
+const MARK_KINDS: MarkKind[] = ['taught', 'verified', 'badcase'];
+const ROUTE_KEY = 'zhishu.v1.unitRoute';
+const ROUTE_EVENT = 'zhishu:route';
+
+function readRoute(): string[] {
+  try {
+    const raw = localStorage.getItem(ROUTE_KEY);
+    const v = raw ? (JSON.parse(raw) as string[]) : [];
+    return Array.isArray(v) ? v.filter((id) => LESSONS.some((l) => l.id === id)).slice(0, 4) : [];
+  } catch {
+    return [];
+  }
+}
+function writeRoute(ids: string[]) {
+  try {
+    localStorage.setItem(ROUTE_KEY, JSON.stringify(ids.slice(0, 4)));
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(new Event(ROUTE_EVENT));
+}
+function useRoute(): [string[], (ids: string[]) => void] {
+  const [ids, setIds] = useState<string[]>(readRoute);
+  useEffect(() => {
+    const f = () => setIds(readRoute());
+    window.addEventListener(ROUTE_EVENT, f);
+    return () => window.removeEventListener(ROUTE_EVENT, f);
+  }, []);
+  return [ids, writeRoute];
+}
+
+/* 课卡：正面看课题，翻面看钩子；可以拖进“本单元路线”托盘 */
 function LessonCard({ lesson, wide = false }: { lesson: Lesson; wide?: boolean }) {
   const part = PART_MAP[lesson.part];
+  const marks = useLessonMarks();
+  const [route, setRoute] = useRoute();
+  const inRoute = route.includes(lesson.id);
+  const seals = MARK_KINDS.filter((k) => marks[k].includes(lesson.id));
+  const addToRoute = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (inRoute || route.length >= 4) return;
+    play('paper');
+    setRoute([...route, lesson.id]);
+  };
+
   return (
-    <button className={`lesson-card ${wide ? 'wide' : ''}`} style={cv({ '--c': part.color })} onClick={() => navigate(`curriculum/${lesson.id}`)}>
-      <span className="lc-part">{part.name}</span>
-      <span className="lc-title">{lesson.title}</span>
-      <span className="lc-hook">“{lesson.hook}”</span>
-      <span className="lc-meta">
-        <span>{lesson.hours} 课时</span>
-        {lesson.lab && <span className="lab-flag">⚗ 实验</span>}
-        {wide && <span>{PHASE_MAP[lesson.phase].name}</span>}
-      </span>
-    </button>
+    <div
+      className={`lesson-card-wrap ${wide ? 'wide' : ''} ${inRoute ? 'in-route' : ''}`}
+      draggable
+      onDragStart={(e: DragEvent<HTMLDivElement>) => {
+        e.dataTransfer.setData('application/x-zhishu-lesson', lesson.id);
+        e.dataTransfer.setData('text/plain', lesson.title);
+        e.dataTransfer.effectAllowed = 'copy';
+      }}
+    >
+      <div className={`lesson-card flip ${wide ? 'wide' : ''}`} style={cv({ '--c': part.color })} {...pressable(() => navigate(`curriculum/${lesson.id}`))} aria-label={`${lesson.title}：${lesson.hook}`}>
+        <span className="lc-inner">
+          <span className="lc-face front">
+            <span className="lc-part">{part.name}</span>
+            <span className="lc-title">{lesson.title}</span>
+            {wide && <span className="lc-hook">“{lesson.hook}”</span>}
+            <span className="lc-meta">
+              <span>{lesson.hours} 课时</span>
+              {lesson.lab && <span className="lab-flag">⚗ 实验</span>}
+              {wide && <span>{PHASE_MAP[lesson.phase].name}</span>}
+            </span>
+          </span>
+          {!wide && (
+            <span className="lc-face back" aria-hidden>
+              <small>钩子</small>
+              <span className="lc-hook">“{lesson.hook}”</span>
+            </span>
+          )}
+        </span>
+        {seals.length > 0 && (
+          <span className="lc-seals" aria-label={seals.map((k) => MARK_META[k].label).join('、')}>
+            {seals.map((k) => (
+              <span key={k} title={MARK_META[k].label}>
+                <Seal label={MARK_META[k].seal} size="xs" tone={k === 'badcase' ? 'ink' : 'cinnabar'} />
+              </span>
+            ))}
+          </span>
+        )}
+      </div>
+      <button className="lc-add" onClick={addToRoute} disabled={inRoute || route.length >= 4} title={inRoute ? '已在本单元路线中' : '加入本单元路线（也可以直接拖过去）'} aria-label={`把「${lesson.title}」加入本单元路线`}>
+        {inRoute ? '✓' : '+'}
+      </button>
+    </div>
+  );
+}
+
+/* 本单元路线：拖 3–4 张课卡进来，像地铁线一样串起来，直接进入备课 */
+function RouteTray() {
+  const [route, setRoute] = useRoute();
+  const [over, setOver] = useState(false);
+  const { choosePlanLesson } = useApp();
+  const { stamp } = useStamp();
+  const lessons = route.map((id) => LESSONS.find((l) => l.id === id)).filter((l): l is Lesson => Boolean(l));
+
+  const drop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setOver(false);
+    const id = e.dataTransfer.getData('application/x-zhishu-lesson');
+    if (!id || route.includes(id) || route.length >= 4) return;
+    play('paper');
+    setRoute([...route, id]);
+  };
+  const remove = (id: string) => setRoute(route.filter((x) => x !== id));
+  const go = (e: MouseEvent<HTMLButtonElement>) => {
+    if (!lessons.length) return;
+    stamp({ label: '定线', target: `本单元路线：${lessons.map((l) => l.title).join(' → ')}`, at: e.currentTarget });
+    choosePlanLesson(lessons[0].id);
+    window.setTimeout(() => navigate('composer'), 450);
+  };
+
+  return (
+    <section
+      className={`route-tray panel ${over ? 'over' : ''} ${lessons.length ? 'filled' : ''}`}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('application/x-zhishu-lesson')) {
+          e.preventDefault();
+          setOver(true);
+        }
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={drop}
+    >
+      <div className="rt-head">
+        <span className="eyebrow">UNIT ROUTE · 备课篮</span>
+        <b>本单元路线</b>
+        <small className="muted">把 3–4 张课卡拖进来（或点卡片右上角的 +），串成一条线，直接生成备课计划。</small>
+      </div>
+      <ol className="rt-line">
+        {Array.from({ length: 4 }, (_, i) => {
+          const l = lessons[i];
+          return (
+            <li key={l?.id ?? `slot-${i}`} className={`rt-stop ${l ? 'on' : ''}`} style={l ? cv({ '--c': PART_MAP[l.part].color }) : undefined}>
+              <i className="rt-dot" aria-hidden />
+              {l ? (
+                <span className="rt-card">
+                  <small className="mono">第 {i + 1} 站</small>
+                  <b>{l.title}</b>
+                  <button onClick={() => remove(l.id)} aria-label={`从路线中移除「${l.title}」`}>
+                    ×
+                  </button>
+                </span>
+              ) : (
+                <span className="rt-empty">空站</span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      <div className="rt-actions">
+        <span className="mono muted small">{lessons.reduce((a, l) => a + l.hours, 0)} 课时</span>
+        <button className="btn primary sm" onClick={go} disabled={lessons.length < 3}>
+          {lessons.length < 3 ? `再拖 ${3 - lessons.length} 张` : '定线 · 从第 1 站开始备课 →'}
+        </button>
+      </div>
+    </section>
   );
 }
 

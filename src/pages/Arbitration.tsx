@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { EmptyState } from '../fun/LineArt';
+import { play } from '../fun/sound';
+import { useStamp } from '../fun/Stamp';
 import { ARB_CASES, KIND_META, type ArbCase, type ModelOutput } from '../data/arbitration';
 import type { BadcaseKind, BadcaseStatus, NewBadcase } from '../data/types';
 import { describeError } from '../services/errors';
@@ -43,6 +46,9 @@ export default function Arbitration() {
   const [live, setLive] = useState<LiveState>(EMPTY_LIVE);
   const { badcases, badcaseSource, badcaseError, addBadcases, advanceBadcase, removeBadcase } = useApp();
   const { llm, config } = useServices();
+  const { stamp } = useStamp();
+  // 飞轮转格：每归档或推进一次，飞轮真的转一格
+  const [turn, setTurn] = useState(0);
 
   const isCustom = caseId === CUSTOM;
   const c = useMemo<ArbCase>(() => {
@@ -60,9 +66,11 @@ export default function Arbitration() {
   const isRevealed = !isCustom && !!revealed[caseId];
 
   /** 同一问题并行询问三个模型席位：任何一个失败都不影响其他两个 */
-  const askLive = async (questionArg?: string) => {
+  const askLive = async (questionArg?: string, at?: Element | null) => {
     const question = (questionArg ?? draftQ).trim();
     if (!question) return;
+    // 法槌敲下：开庭
+    stamp({ label: '开庭', tone: 'ink', target: `三堂会审 · ${question}`, at });
     setDraftQ(question);
     setCaseId(CUSTOM);
     setLive({ question, outputs: null, loading: true, error: null });
@@ -122,7 +130,8 @@ export default function Arbitration() {
     }),
   );
 
-  const archive = async () => {
+  const archive = async (e: MouseEvent<HTMLButtonElement>) => {
+    const at = e.currentTarget;
     const items: NewBadcase[] = [];
     c.outputs.forEach((o, mi) =>
       o.sentences.forEach((s, si) => {
@@ -131,6 +140,8 @@ export default function Arbitration() {
       }),
     );
     if (!items.length) return;
+    stamp({ label: '采纳', target: `${items.length} 条 Badcase · ${c.question}`, at });
+    setTurn((t) => t + 1);
     await addBadcases(items);
     setArchived(items.length);
   };
@@ -178,10 +189,10 @@ export default function Arbitration() {
               value={draftQ}
               placeholder="输入一个需要“三堂会审”的问题，例如：长城在太空中肉眼可见吗？"
               onChange={(e) => setDraftQ(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && askLive()}
+              onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && askLive(undefined, e.currentTarget)}
             />
-            <button className="btn primary" onClick={() => askLive()} disabled={!draftQ.trim() || live.loading}>
-              {live.loading ? '三个模型作答中…' : '同时询问三个模型'}
+            <button className="btn primary gavel-btn" onClick={(e) => askLive(undefined, e.currentTarget)} disabled={!draftQ.trim() || live.loading}>
+              {live.loading ? '三位证人作答中…' : '⚖ 敲槌开庭 · 同时询问三个模型'}
             </button>
           </div>
         ) : (
@@ -189,7 +200,7 @@ export default function Arbitration() {
             <span className="q-mark">问</span>
             <p>{c.question}</p>
             <div className="spacer" />
-            <button className="btn ghost sm" onClick={() => askLive(c.question)} title="用当前接口配置的三个模型重新回答本题">
+            <button className="btn ghost sm" onClick={(e) => askLive(c.question, e.currentTarget)} title="用当前接口配置的三个模型重新回答本题">
               ↻ 用当前接口重新提问
             </button>
           </div>
@@ -216,7 +227,7 @@ export default function Arbitration() {
             {isRevealed ? '隐藏核查结果' : '🔍 揭晓核查依据'}
           </button>
           <button className="btn primary" onClick={archive} disabled={!totalFlags}>
-            {archived ? `已归档 ${archived} 条 ✓` : `归档为 Badcase（${totalFlags}）`}
+            {archived ? `已归档 ${archived} 条 ✓` : `采纳 · 归档为 Badcase（${totalFlags}）`}
           </button>
         </div>
 
@@ -239,7 +250,10 @@ export default function Arbitration() {
         ) : c.outputs.length ? (
           <div className="models">
             {c.outputs.map((o, mi) => (
-              <article key={`${o.model}-${mi}`} className="model-card">
+              <article key={`${o.model}-${mi}`} className="model-card testimony" style={cv({ '--tilt': `${(mi - 1) * 0.6}deg` })}>
+                <span className="testimony-tag mono" aria-hidden>
+                  证词 {String.fromCharCode(65 + mi)}
+                </span>
                 <header>
                   <b>{o.model}</b>
                   <small>{o.base}</small>
@@ -276,7 +290,7 @@ export default function Arbitration() {
             ))}
           </div>
         ) : (
-          <div className="empty">输入一个问题，同时询问三个模型席位（席位与模型 ID 可在“接口设置”中配置）。</div>
+          <EmptyState kind="scroll" title="证人席还空着" hint="输入一个问题，敲槌开庭：三个模型席位会同时作答（席位与模型 ID 可在“数据与接口”中配置）。" />
         )}
 
         {live.error && isCustom && <p className="err">{live.error}</p>}
@@ -303,7 +317,7 @@ export default function Arbitration() {
             <span className="eyebrow">EVOLUTION NATIVE</span>
             <h3>Badcase 数据飞轮</h3>
           </div>
-          <Flywheel counts={STATUS_FLOW.map((s) => badcases.filter((b) => b.status === s).length)} />
+          <Flywheel counts={STATUS_FLOW.map((s) => badcases.filter((b) => b.status === s).length)} turn={turn} />
           <p className="muted small">每一次幻觉、逻辑断层或格式偏离，都是一次“线上生产事故”——它将被转化为修正提示词、扩充知识库或迭代评估集的燃料。</p>
         </div>
         <div className="panel bc-panel">
@@ -318,7 +332,7 @@ export default function Arbitration() {
             {badcases.map((b) => {
               const st = STATUS_META[b.status];
               return (
-                <div key={b.id} className="bc-item" style={cv({ '--c': KIND_META[b.kind].color })}>
+                <div key={b.id} className="bc-item dossier" style={cv({ '--c': KIND_META[b.kind].color })}>
                   <span className="bc-kind">{KIND_META[b.kind].label}</span>
                   <div className="bc-main">
                     <p>“{b.excerpt}”</p>
@@ -329,7 +343,15 @@ export default function Arbitration() {
                   <span className="bc-status" style={{ color: st.color, borderColor: st.color }} title={st.desc}>
                     {st.label}
                   </span>
-                  <button className="btn sm" onClick={() => advanceBadcase(b.id)} disabled={b.status === 'regression'}>
+                  <button
+                    className="btn sm"
+                    onClick={() => {
+                      play('paper');
+                      setTurn((t) => t + 1);
+                      void advanceBadcase(b.id);
+                    }}
+                    disabled={b.status === 'regression'}
+                  >
                     推进 →
                   </button>
                   <button className="icon-btn" onClick={() => removeBadcase(b.id)} title="删除">
@@ -338,7 +360,7 @@ export default function Arbitration() {
                 </div>
               );
             })}
-            {!badcases.length && <div className="empty">还没有 Badcase。去上方标记并归档吧。</div>}
+            {!badcases.length && <EmptyState compact kind="scroll" title="档案柜还空着" hint="去上方用审计画笔标出问题句，盖章采纳后，案卷会滑进这里。" />}
           </div>
         </div>
       </section>
@@ -346,7 +368,7 @@ export default function Arbitration() {
   );
 }
 
-function Flywheel({ counts }: { counts: number[] }) {
+function Flywheel({ counts, turn }: { counts: number[]; turn: number }) {
   const size = 300;
   const c = size / 2;
   const R = 104;
@@ -364,7 +386,10 @@ function Flywheel({ counts }: { counts: number[] }) {
         </linearGradient>
       </defs>
       <circle cx={c} cy={c} r={R} fill="none" stroke="rgba(28,25,23,.09)" strokeWidth={18} />
-      <circle cx={c} cy={c} r={R} fill="none" stroke="url(#fwGrad)" strokeWidth={2} strokeDasharray="4 10" className="fw-spin" />
+      <g className="fw-turn" style={{ transform: `rotate(${turn * 90}deg)`, transformOrigin: `${c}px ${c}px` }}>
+        <circle cx={c} cy={c} r={R} fill="none" stroke="url(#fwGrad)" strokeWidth={2} strokeDasharray="4 10" className="fw-spin" />
+        <circle cx={c} cy={c - R - 13} r={4} className="fw-notch" />
+      </g>
       {STATUS_FLOW.map((s, i) => {
         const a0 = -Math.PI / 2 + (i * Math.PI) / 2 + 0.32;
         const a1 = a0 + Math.PI / 2 - 0.64;

@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import PatchBay from '../fun/PatchBay';
+import { useSoundPref, type SoundPref } from '../fun/sound';
+import { useStamp } from '../fun/Stamp';
 import type { Backend, ServiceConfig, ServiceMode } from '../services/config';
 import { createServices } from '../services/container';
 import { useServiceConfig } from '../services/ServiceContext';
@@ -38,6 +41,7 @@ const MODES: { id: ServiceMode; title: string; sub: string; desc: string }[] = [
 export default function Settings() {
   const { config, updateConfig, resetConfig } = useServiceConfig();
   const records = useTelemetry();
+  const { stamp } = useStamp();
   const [draft, setDraft] = useState<ServiceConfig>(config);
   const [health, setHealth] = useState<HealthReport | null>(null);
   const [testing, setTesting] = useState(false);
@@ -77,10 +81,18 @@ export default function Settings() {
           <p className="lead">页面只依赖服务契约（LLM / 检索 / 安全校验 / 量规评分 / 持久化）。在 Mock 与真实接口之间切换，无需修改任何页面代码。</p>
         </div>
         <div className="head-tools">
+          <SoundPicker />
           <button className="btn ghost" onClick={resetConfig}>
             恢复默认
           </button>
-          <button className="btn primary" onClick={() => updateConfig(draft)} disabled={!dirty}>
+          <button
+            className="btn primary"
+            onClick={(e) => {
+              stamp({ label: '应用', target: `接口配置 · ${draft.mode === 'mock' ? 'Mock 模拟' : `真实接口 ${draft.defaultModel || ''}`}`, at: e.currentTarget });
+              updateConfig(draft);
+            }}
+            disabled={!dirty}
+          >
             {dirty ? '保存并应用' : '已应用 ✓'}
           </button>
         </div>
@@ -181,6 +193,7 @@ export default function Settings() {
               </div>
             ))}
           </fieldset>
+          <PatchBay draft={draft} />
 
           <div className="section-title" style={{ marginTop: 18 }}>
             <span className="eyebrow">RETRIEVAL & PERSISTENCE</span>
@@ -200,7 +213,7 @@ export default function Settings() {
         </section>
       </div>
 
-      <section className="panel tele-panel">
+      <section className="panel tele-panel" id="call-log">
         <div className="tele-head">
           <div className="section-title">
             <span className="eyebrow">CALL LOG · AI 使用透明度</span>
@@ -298,5 +311,24 @@ function BackendSwitch({
       </div>
       <small className="muted">{value === 'local' ? local : remote}</small>
     </div>
+  );
+}
+
+const SOUND_LABEL: Record<SoundPref, string> = { auto: '自动（课堂开 / 个人关）', on: '开', off: '关' };
+
+/** 声音偏好：纸、印章、骰子、心跳四种声响 */
+function SoundPicker() {
+  const { pref, setPref } = useSoundPref();
+  return (
+    <label className="field sound-field" title="纸、印章、骰子、心跳四种声响；课堂模式默认开，个人模式默认关">
+      <span>声音</span>
+      <select value={pref} onChange={(e) => setPref(e.target.value as SoundPref)}>
+        {(Object.keys(SOUND_LABEL) as SoundPref[]).map((k) => (
+          <option key={k} value={k}>
+            {SOUND_LABEL[k]}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

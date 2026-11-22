@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { TRANSPARENCY } from '../data/rubric';
+import { Seal } from '../fun/Stamp';
 import { useServices } from '../services/ServiceContext';
 import { cv } from '../utils/css';
 import type { LogEntry, Reflection } from './identity';
@@ -39,6 +40,13 @@ export default function MyLog({
   const count = elements.filter((e) => e.ok).length;
   const deep = count === 3 && len(reflection.checked) + len(reflection.rewrote) >= 80;
   const level = TRANSPARENCY[deep ? 0 : count === 3 ? 1 : count === 2 ? 2 : count === 1 ? 3 : 4];
+  const blocked = entries.filter((e) => e.outcome.startsWith('blocked')).length;
+  const passport: { label: string; ok: boolean; weight: 'minor' | 'major'; done: string; todo: string; tip: string }[] = [
+    { label: '提问', ok: entries.length > 0, weight: 'minor', done: '用过 AI', todo: '尚未提问', tip: '只要用过一次就盖章；多问不会多盖。' },
+    { label: '拦截', ok: blocked > 0, weight: 'minor', done: '见过护栏', todo: '未遇拦截', tip: '被 Verifier 拦下过一次，说明你见过护栏长什么样。' },
+    { label: '核查', ok: len(reflection.checked) >= 15, weight: 'major', done: '亲手核对', todo: '写 15 字核查', tip: '写清楚你用什么资料核对了 AI 的说法。' },
+    { label: '改写', ok: len(reflection.rewrote) >= 15, weight: 'major', done: '亲手改写', todo: '写 15 字改写', tip: '写清楚你删改了 AI 的哪些内容、为什么。' },
+  ];
 
   const declaration = [
     `【AI 使用透明度声明】`,
@@ -73,6 +81,27 @@ export default function MyLog({
         <div>
           <small>被安全复核拦截</small>
           <b className="mono">{entries.filter((e) => e.outcome.startsWith('blocked')).length}</b>
+        </div>
+      </div>
+
+      <div className="passport" style={cv({ '--c': level.color })}>
+        <div className="pp-head">
+          <b>AI 协作护照</b>
+          <small>「提问」只盖一次，多问不多盖；「核查」「改写」才是朱砂章。</small>
+        </div>
+        <div className="pp-stamps">
+          {passport.map((p) => (
+            <div key={p.label} className={`pp-stamp ${p.ok ? 'earned' : ''} ${p.weight}`} title={p.tip}>
+              <Seal label={p.label} tone={p.weight === 'major' ? 'cinnabar' : 'ink'} size={p.weight === 'major' ? 'md' : 'sm'} ghost={!p.ok} />
+              <small>{p.ok ? p.done : p.todo}</small>
+            </div>
+          ))}
+          <div className={`pp-stamp level ${count > 0 ? 'earned' : ''}`} title="五级透明度自评（最终由老师评定）">
+            <span className="pp-level" style={cv({ '--c': level.color })}>
+              <b>{level.name}</b>
+            </span>
+            <small>透明度</small>
+          </div>
         </div>
       </div>
 

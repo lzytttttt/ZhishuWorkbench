@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react';
+import { play } from '../fun/sound';
 import { cv } from '../utils/css';
 
 type Mode = 'char' | 'word' | 'model';
@@ -115,6 +116,13 @@ export function tokenize(text: string, mode: Mode): Tok[] {
   return toks;
 }
 
+/** 学生自己剪出来的积木：按内容重新判断类型与编号 */
+function pieceOf(text: string): Tok {
+  const first = Array.from(text)[0] ?? '';
+  const kind: Tok['kind'] = /^‹/.test(text) ? 'byte' : isPunct(first) ? 'punct' : /^[0-9]+$/.test(text) ? 'num' : /^[A-Za-z']+$/.test(text) ? 'en' : 'zh';
+  return { text, id: hash(text), kind };
+}
+
 const MODES: { id: Mode; label: string; desc: string }[] = [
   { id: 'char', label: '按字剪', desc: '一个字 / 字母一块' },
   { id: 'word', label: '按词剪', desc: '常见词语打包成一块' },
@@ -125,7 +133,56 @@ export default function TokenScissors() {
   const [text, setText] = useState(PRESETS[0]);
   const [mode, setMode] = useState<Mode>('model');
   const [showId, setShowId] = useState(true);
-  const toks = useMemo(() => tokenize(text, mode), [text, mode]);
+  const modelToks = useMemo(() => tokenize(text, mode), [text, mode]);
+  // 学生的剪法：null = 沿用模型的剪法
+  const [custom, setCustom] = useState<string[] | null>(null);
+  const [hover, setHover] = useState<{ i: number; k: number; pct: number } | null>(null);
+  const [drag, setDrag] = useState<number | null>(null);
+  const [fresh, setFresh] = useState<number | null>(null);
+  useEffect(() => {
+    setCustom(null);
+    setHover(null);
+  }, [text, mode]);
+  const toks = useMemo(() => (custom ? custom.map(pieceOf) : modelToks), [custom, modelToks]);
+  const pieces = toks.map((t) => t.text);
+
+  /* 剪：在积木上移动，切口吸附到最近的字缝；点击即剪开 */
+  const aim = (i: number, e: MouseEvent<HTMLDivElement>) => {
+    const chars = Array.from(pieces[i]);
+    if (chars.length < 2 || toks[i].kind === 'byte') {
+      setHover(null);
+      return;
+    }
+    const label = e.currentTarget.querySelector('.lego-text') as HTMLElement | null;
+    const r = (label ?? e.currentTarget).getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (e.clientX - r.left) / Math.max(1, r.width)));
+    const k = Math.min(chars.length - 1, Math.max(1, Math.round(ratio * chars.length)));
+    const host = e.currentTarget.getBoundingClientRect();
+    setHover({ i, k, pct: ((r.left - host.left + (k / chars.length) * r.width) / Math.max(1, host.width)) * 100 });
+  };
+  const snip = (i: number) => {
+    if (!hover || hover.i !== i) return;
+    const chars = Array.from(pieces[i]);
+    const next = [...pieces.slice(0, i), chars.slice(0, hover.k).join(''), chars.slice(hover.k).join(''), ...pieces.slice(i + 1)];
+    play('snip');
+    setCustom(next);
+    setFresh(i + 1);
+    setHover(null);
+  };
+  /* 贴：把积木拖到相邻积木上，或点切口，就粘成一块 */
+  const glue = (a: number, b: number) => {
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    if (hi - lo !== 1) return;
+    play('paper');
+    setCustom([...pieces.slice(0, lo), pieces[lo] + pieces[hi], ...pieces.slice(hi + 1)]);
+    setFresh(lo);
+  };
+  const dropOn = (i: number, e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (drag !== null) glue(drag, i);
+    setDrag(null);
+  };
   const charCount = Array.from(text.replace(/\s/g, '')).length;
   const hasBerry = /strawberry/i.test(text);
   const hasRare = Array.from(text).some((c) => RARE.includes(c));
@@ -169,20 +226,56 @@ export default function TokenScissors() {
         </div>
       </div>
 
-      <div className="tok-tray" key={mode + text}>
+      <div className="tok-tray scissors-cursor" key={mode + text} onMouseLeave={() => setHover(null)}>
         {toks.map((t, i) => (
-          <div key={i} className="tok-wrap" style={{ animationDelay: `${Math.min(i, 40) * 35}ms` }}>
-            {i > 0 && <span className="cut" aria-hidden />}
-            <div className={`lego k-${t.kind}`} style={cv({ '--h': String(t.id % 360) })}>
+          <div
+            key={`${i}-${t.text}`}
+            className={`tok-wrap ${drag !== null && Math.abs(drag - i) === 1 ? 'glue-target' : ''} ${drag === i ? 'dragging' : ''} ${fresh === i ? 'fresh' : ''}`}
+            style={{ animationDelay: custom ? '0ms' : `${Math.min(i, 40) * 35}ms` }}
+            draggable
+            onDragStart={(e) => {
+              setDrag(i);
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', String(i));
+            }}
+            onDragEnd={() => setDrag(null)}
+            onDragOver={(e) => {
+              if (drag !== null && Math.abs(drag - i) === 1) e.preventDefault();
+            }}
+            onDrop={(e) => dropOn(i, e)}
+          >
+            {i > 0 && (
+              <button className="cut" onClick={() => glue(i - 1, i)} title="点切口：把两块积木粘回去" aria-label={`把「${toks[i - 1].text}」和「${t.text}」粘成一块`} />
+            )}
+            <div
+              className={`lego k-${t.kind} ${hover?.i === i ? 'aimed' : ''}`}
+              style={cv({ '--h': String(t.id % 360) })}
+              onMouseMove={(e) => aim(i, e)}
+              onClick={() => snip(i)}
+            >
               <span className="studs">
                 <i />
                 <i />
               </span>
               <span className="lego-text">{t.text}</span>
+              {hover?.i === i && <span className="snap-cut" style={{ left: `${hover.pct}%` }} aria-hidden />}
             </div>
             {showId && <span className="tok-id mono">#{t.id}</span>}
           </div>
         ))}
+      </div>
+      <div className="tok-craft">
+        <span className="muted small">✂ 在积木上点一下就剪开（切口会吸附到字缝）；把积木拖到旁边那块上就粘起来。</span>
+        {custom && (
+          <>
+            <span className="tok-compare mono">
+              你的剪法 <b>{toks.length}</b> 块 · 模型 <b>{modelToks.length}</b> 块
+            </span>
+            <button className="btn ghost sm" onClick={() => setCustom(null)}>
+              还原模型剪法
+            </button>
+          </>
+        )}
       </div>
 
       <div className="insight-row">

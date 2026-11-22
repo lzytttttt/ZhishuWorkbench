@@ -1,6 +1,7 @@
 /* 调用遥测：记录每一次 AI 调用的场景、模型、耗时与结果。
  * 既是调试工具，也是“AI 使用透明度”的课堂素材。 */
 import { useEffect, useState } from 'react';
+import { vitals } from '../fun/vitals';
 import { toServiceError } from './errors';
 import type { LLMProvider } from './types';
 
@@ -29,6 +30,7 @@ class Telemetry {
 
   record(r: Omit<CallRecord, 'id' | 'at'>) {
     this.records = [{ ...r, id: ++this.seq, at: Date.now() }, ...this.records].slice(0, CAP);
+    vitals.note(r.status);
     this.emit();
   }
 
@@ -69,6 +71,7 @@ export async function traced<T>(
   describe?: (r: T) => string,
 ): Promise<T> {
   const t0 = performance.now();
+  vitals.begin();
   try {
     const r = await fn();
     telemetry.record({ kind, ...meta, latencyMs: since(t0), status: 'ok', detail: describe ? describe(r) : meta.detail });
@@ -76,6 +79,8 @@ export async function traced<T>(
   } catch (e) {
     telemetry.record({ kind, ...meta, latencyMs: since(t0), status: statusOf(e), detail: toServiceError(e).message });
     throw e;
+  } finally {
+    vitals.end();
   }
 }
 
@@ -87,6 +92,7 @@ export function withTelemetry(inner: LLMProvider): LLMProvider {
       const t0 = performance.now();
       let chars = 0;
       let tokens: number | undefined;
+      vitals.begin();
       try {
         for await (const c of inner.stream(req)) {
           chars += c.delta.length;
@@ -97,10 +103,13 @@ export function withTelemetry(inner: LLMProvider): LLMProvider {
       } catch (e) {
         telemetry.record({ kind: 'llm.stream', scenario: req.scenario?.id, model: req.model, latencyMs: since(t0), status: statusOf(e), detail: toServiceError(e).message });
         throw toServiceError(e);
+      } finally {
+        vitals.end();
       }
     },
     async chat(req) {
       const t0 = performance.now();
+      vitals.begin();
       try {
         const r = await inner.chat(req);
         telemetry.record({
@@ -116,6 +125,8 @@ export function withTelemetry(inner: LLMProvider): LLMProvider {
       } catch (e) {
         telemetry.record({ kind: 'llm.chat', scenario: req.scenario?.id, model: req.model, latencyMs: since(t0), status: statusOf(e), detail: toServiceError(e).message });
         throw toServiceError(e);
+      } finally {
+        vitals.end();
       }
     },
   };

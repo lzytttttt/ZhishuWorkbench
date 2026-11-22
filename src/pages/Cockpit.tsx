@@ -43,7 +43,7 @@ export default function Cockpit() {
         </div>
         <div className="stage-canvas">
           <CognitiveHeart selected={sel} onSelect={setSel} dormant={aiFree} />
-          {aiFree && <div className="dormant-note">AI-Free 时段 · 认知心脏已休眠，请用纸笔独立推演</div>}
+          {aiFree && <div className="dormant-note">AI-Free 时段 · 心脏停了一会儿——此刻请用纸笔独立推演</div>}
         </div>
         <div className="phase-rail">
           {PHASES.map((p, i) => (

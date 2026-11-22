@@ -1,4 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import { addMark } from '../fun/marks';
+import { play } from '../fun/sound';
+import { useStamp } from '../fun/Stamp';
 import Ring from '../components/Ring';
 import { LESSONS, PART_MAP } from '../data/curriculum';
 import { PROMPT_FUNCTIONS, type PromptFunction } from '../data/rubric';
@@ -22,6 +25,10 @@ export default function Composer() {
   const [verifier, setVerifier] = useState(true);
   const [maxReplace, setMaxReplace] = useState(2);
   const [copied, setCopied] = useState(false);
+  const { stamp } = useStamp();
+  const tlRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ id: string; x0: number; m0: number; pxPerMin: number; last: number } | null>(null);
+  const [resizing, setResizing] = useState<string | null>(null);
 
   const total = plan.reduce((s, x) => s + x.minutes, 0);
   const ratio = aiFreeRatio(plan);
@@ -48,6 +55,37 @@ export default function Composer() {
       /* 剪贴板不可用 */
     }
   };
+
+  /* 木块：拖右边缘改时长，5 分钟吸附 */
+  const grab = (s: Segment, e: PointerEvent<HTMLSpanElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const w = tlRef.current?.getBoundingClientRect().width ?? 600;
+    drag.current = { id: s.id, x0: e.clientX, m0: s.minutes, pxPerMin: w / Math.max(1, total), last: s.minutes };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setResizing(s.id);
+  };
+  const pull = (e: PointerEvent<HTMLSpanElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    const raw = d.m0 + (e.clientX - d.x0) / d.pxPerMin;
+    const snapped = Math.min(45, Math.max(5, Math.round(raw / 5) * 5));
+    if (snapped !== d.last) {
+      d.last = snapped;
+      play('snip');
+      update(d.id, { minutes: snapped });
+    }
+  };
+  const release = () => {
+    drag.current = null;
+    setResizing(null);
+  };
+  const finalize = (e: MouseEvent<HTMLButtonElement>) => {
+    stamp({ label: '定稿', target: `${lesson.title} · ${total} 分钟 · 无 AI ${pct(ratio)}`, at: e.currentTarget });
+    addMark('verified', lesson.id);
+  };
+  // 秤杆：25% 是准星；低于阈值时秤砣滑向 AI 一侧，杆子下沉
+  const tilt = Math.max(-12, Math.min(12, (ratio - 0.25) * 48));
 
   const ticks = Array.from({ length: Math.floor(total / 5) + 1 }, (_, i) => i * 5);
 
@@ -84,22 +122,44 @@ export default function Composer() {
               </span>
               <h3>{lesson.title}</h3>
             </div>
-            <div className="tp-total mono">
-              {total}
-              <small>min</small>
+            <div className="tp-tools">
+              <div className="tp-total mono">
+                {total}
+                <small>min</small>
+              </div>
+              <button className="btn sm" onClick={finalize} disabled={!ok} title={ok ? '盖章定稿：记入印章抽屉，并在课程卡上留下“验”字章' : 'AI-Free 占比不足 25%，还不能定稿'}>
+                定稿 · 盖章
+              </button>
             </div>
           </div>
 
-          <div className="timeline">
+          <div className="timeline wood" ref={tlRef}>
             {plan.map((s) => (
               <div
                 key={s.id}
-                className={`tl-seg t-${s.type}`}
+                className={`tl-seg t-${s.type} ${resizing === s.id ? 'resizing' : ''}`}
                 style={{ flexGrow: Math.max(1, s.minutes), ...cv({ '--c': SEGMENT_META[s.type].color }) }}
-                title={`${SEGMENT_META[s.type].label} · ${s.minutes} 分钟`}
+                title={`${SEGMENT_META[s.type].label} · ${s.minutes} 分钟（拖右边缘改时长，5 分钟吸附）`}
               >
                 <b>{SEGMENT_META[s.type].short}</b>
                 <span>{s.minutes}′</span>
+                <span
+                  className="tl-grip"
+                  role="slider"
+                  aria-label={`${s.title} 时长`}
+                  aria-valuemin={5}
+                  aria-valuemax={45}
+                  aria-valuenow={s.minutes}
+                  tabIndex={0}
+                  onPointerDown={(e) => grab(s, e)}
+                  onPointerMove={pull}
+                  onPointerUp={release}
+                  onPointerCancel={release}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') update(s.id, { minutes: Math.min(45, Math.round(s.minutes / 5) * 5 + 5) });
+                    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') update(s.id, { minutes: Math.max(5, Math.round(s.minutes / 5) * 5 - 5) });
+                  }}
+                />
               </div>
             ))}
           </div>
@@ -159,6 +219,22 @@ export default function Composer() {
             <b className="big mono">{pct(ratio)}</b>
             <small>无 AI 时段</small>
           </Ring>
+          <svg className={`steelyard ${ok ? 'ok' : 'bad'}`} viewBox="0 0 200 70" width="200" height="70" aria-label={`秤杆：无 AI 时段 ${pct(ratio)}，准星 25%`}>
+            <path d="M100 8 v10" className="sy-hook" />
+            <g style={{ transform: `rotate(${tilt}deg)`, transformOrigin: '100px 20px', transition: 'transform .5s var(--ease)' }}>
+              <line x1="16" y1="20" x2="184" y2="20" className="sy-beam" />
+              {[0.25, 0.5, 0.75].map((v) => (
+                <line key={v} x1={100 + (v - 0.25) * 140} y1="16" x2={100 + (v - 0.25) * 140} y2="24" className={`sy-tick ${v === 0.25 ? 'mark' : ''}`} />
+              ))}
+              <text x="22" y="12" className="sy-label">AI</text>
+              <text x="160" y="12" className="sy-label">无 AI</text>
+              <g style={{ transform: `translateX(${Math.max(-80, Math.min(80, (ratio - 0.25) * 140))}px)`, transition: 'transform .5s var(--ease)' }}>
+                <line x1="100" y1="20" x2="100" y2="40" className="sy-string" />
+                <path d="M92 40 h16 l-3 14 h-10z" className="sy-weight" />
+              </g>
+            </g>
+            <circle cx="100" cy="20" r="2.6" className="sy-pivot" />
+          </svg>
           <p className="gauge-msg">
             {ok ? '✓ 满足“不少于 25% 纯人类独立推演时段”' : '✗ 低于 25% 阈值：独立思考的“肌肉”有萎缩风险'}
           </p>
@@ -280,9 +356,10 @@ function TestDrive({ system, fnId, lessonId, verify }: { system: string; fnId: P
   };
 
   return (
-    <div className="test-drive">
+    <div className="test-drive rehearsal">
+      <div className="stage-curtain" aria-hidden />
       <div className="td-head">
-        <b>试运行 · 以学生身份对话</b>
+        <b>彩排 · 以学生身份对话</b>
         <span className="muted small">检验这份系统提示词是否真的“扣留答案、启发思考”</span>
         <div className="spacer" />
         <span className={`mode-tag ${config.mode}`}>{config.mode === 'mock' ? 'Mock 模拟' : config.defaultModel || '未配置模型'}</span>
@@ -303,7 +380,7 @@ function TestDrive({ system, fnId, lessonId, verify }: { system: string; fnId: P
             )}
           </>
         ) : (
-          <div className="td-empty">输入一条学生消息，看看这位学习伙伴会如何回应。</div>
+          <div className="td-empty">小舞台已经搭好，幕布还没拉开——输入一条学生消息，看看这位学习伙伴会怎么接戏。</div>
         )}
       </div>
       <div className="row">

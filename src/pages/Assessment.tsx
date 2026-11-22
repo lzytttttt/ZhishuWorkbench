@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, type MouseEvent } from 'react';
+import { play } from '../fun/sound';
+import { Seal, useStamp } from '../fun/Stamp';
 import RadarChart from '../components/RadarChart';
 import { RUBRIC, TRANSPARENCY } from '../data/rubric';
 import { describeError } from '../services/errors';
@@ -46,6 +48,9 @@ export default function Assessment() {
   const [evaluating, setEvaluating] = useState(false);
   const [evalError, setEvalError] = useState<string | null>(null);
   const [trans, setTrans] = useState(72);
+  // 每个维度是否已由教师“终审”（点过一次格子）
+  const [final, setFinal] = useState<boolean[]>(() => RUBRIC.map(() => false));
+  const { stamp } = useStamp();
 
   const total = scores.reduce((a, b) => a + b, 0);
   const band =
@@ -64,6 +69,7 @@ export default function Assessment() {
       setPre(r);
       setScores(r.scores);
       setTeacherEdited(false);
+      setFinal(RUBRIC.map(() => false));
     } catch (e) {
       setEvalError(describeError(e));
     } finally {
@@ -73,7 +79,16 @@ export default function Assessment() {
 
   const setCell = (i: number, v: number) => {
     setScores((s) => s.map((x, k) => (k === i ? v : x)));
+    setFinal((f) => f.map((x, k) => (k === i ? true : x)));
     setTeacherEdited(true);
+    play('stamp');
+  };
+  const confirmed = final.filter(Boolean).length;
+  const seal = (e: MouseEvent<HTMLButtonElement>) => {
+    setFinal(RUBRIC.map(() => true));
+    setTeacherEdited(true);
+    if (total <= 8) stamp({ label: '退回', tone: 'ink', target: `提示词量规 ${total}/15 · 退回重构`, at: e.currentTarget });
+    else stamp({ label: '终审', target: `提示词量规 ${total}/15 · ${band.name}`, at: e.currentTarget });
   };
 
   const sourceLabel = pre.source === 'llm' ? '大模型预评' : '规则启发式预评';
@@ -114,7 +129,9 @@ export default function Assessment() {
         </section>
 
         <section className="panel score-panel">
-          <RadarChart labels={RUBRIC.map((r) => `${r.id} ${r.name.slice(0, 4)}`)} values={scores} max={3} size={300} color={band.color} />
+          <div className="radar-grow" key={scores.join('')}>
+            <RadarChart labels={RUBRIC.map((r) => `${r.id} ${r.name.slice(0, 4)}`)} values={scores} max={3} size={300} color={band.color} />
+          </div>
           <div className="score-big" style={{ color: band.color }}>
             <b className="mono">{total}</b>
             <span>/ 15</span>
@@ -123,6 +140,9 @@ export default function Assessment() {
             <b>{band.name}</b>
             <p>{band.desc}</p>
           </div>
+          <button className={`btn ${total <= 8 ? '' : 'primary'} seal-btn`} onClick={seal}>
+            {total <= 8 ? '退回重构 · 盖章' : `终审 · 盖章（已确认 ${confirmed}/${RUBRIC.length}）`}
+          </button>
           <div className="band-scale">
             <span className={total <= 8 ? 'on' : ''}>≤8 重构</span>
             <span className={total >= 9 && total <= 12 ? 'on' : ''}>9–12 迭代</span>
@@ -147,9 +167,18 @@ export default function Assessment() {
                 {pre.rationale[i] && <p className="rb-why">预评依据：{pre.rationale[i]}</p>}
               </div>
               {r.levels.map((lv, k) => (
-                <button key={k} className={`rb-cell lv${k + 1} ${scores[i] === k + 1 ? 'on' : ''}`} onClick={() => setCell(i, k + 1)}>
+                <button key={k} className={`rb-cell lv${k + 1} ${scores[i] === k + 1 ? 'on' : ''} ${final[i] && scores[i] === k + 1 ? 'final' : ''}`} onClick={() => setCell(i, k + 1)}>
                   {lv}
-                  {pre.scores[i] === k + 1 && <span className="ai-mark">AI</span>}
+                  {pre.scores[i] === k + 1 && !(final[i] && scores[i] === k + 1) && (
+                    <span className="ghost-seal" title="AI 预评建议（幽灵章）：点一下格子即由教师终审">
+                      <Seal label="预评" size="xs" ghost />
+                    </span>
+                  )}
+                  {final[i] && scores[i] === k + 1 && (
+                    <span className="final-seal" title="教师终审">
+                      <Seal label="终审" size="xs" />
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -165,11 +194,11 @@ export default function Assessment() {
         </div>
         <div className="tr-grid">
           <div className="thermo-h">
-            <div className="tr-bar">
+            <div className="tr-bar stairs">
               {TRANSPARENCY.slice()
                 .reverse()
-                .map((l) => (
-                  <div key={l.name} className={`tr-seg ${l === level ? 'on' : ''}`} style={{ flexGrow: l.max - l.min + 1, ...cv({ '--c': l.color }) }}>
+                .map((l, si) => (
+                  <div key={l.name} className={`tr-seg ${l === level ? 'on' : ''}`} style={{ flexGrow: l.max - l.min + 1, ...cv({ '--c': l.color, '--step': si }) }}>
                     <b>{l.name}</b>
                     <small>
                       {l.min}–{l.max}

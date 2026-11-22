@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ARB_CASES } from '../data/arbitration';
+import { addMark } from '../fun/marks';
+import { setClassMode } from '../fun/sound';
 import { useClassSession, type ClassSession } from '../hooks/useClassSession';
 import { majorityKind, TEACHER } from '../services/classroom/reducer';
 import type { Activity, Submission } from '../services/classroom/types';
@@ -73,6 +75,12 @@ export function TeacherClassProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // 课堂模式：声音默认开启（个人模式默认关闭）
+  useEffect(() => {
+    setClassMode(Boolean(code && state?.open));
+    return () => setClassMode(false);
+  }, [code, state?.open]);
+
   // AI-Free 同步
   const classAiFree = state?.aiFree.on;
   const classOpen = state?.open;
@@ -108,6 +116,7 @@ export function TeacherClassProvider({ children }: { children: ReactNode }) {
         run(async () => {
           adopted.current = null;
           setCode(await classroom.create(lessonId));
+          addMark('taught', lessonId);
         }),
       end: () =>
         run(async () => {
@@ -129,6 +138,7 @@ export function TeacherClassProvider({ children }: { children: ReactNode }) {
         run(async () => {
           if (!subs.length) return;
           if (status === 'accepted') {
+            if (state?.lessonId) addMark('badcase', state.lessonId);
             const first = subs[0];
             const c = ARB_CASES.find((x) => x.id === first.caseId);
             await addBadcases([
@@ -143,7 +153,7 @@ export function TeacherClassProvider({ children }: { children: ReactNode }) {
           await publish({ type: 'badcase.review', submissionIds: subs.map((s) => s.id), status, comment });
         }),
     }),
-    [session, code, busy, actionError, aiFreeTask, run, classroom, setCode, state?.open, publish, aiFree, setAiFree, setAiFreeTask, addBadcases],
+    [session, code, busy, actionError, aiFreeTask, run, classroom, setCode, state?.open, state?.lessonId, publish, aiFree, setAiFree, setAiFreeTask, addBadcases],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

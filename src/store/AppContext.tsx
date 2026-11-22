@@ -11,6 +11,7 @@ import {
   type SetStateAction,
 } from 'react';
 import { LESSONS } from '../data/curriculum';
+import { vitals } from '../fun/vitals';
 import type { Badcase, BadcaseStatus, NewBadcase, Segment } from '../data/types';
 import { describeError } from '../services/errors';
 import { useServices } from '../services/ServiceContext';
@@ -72,6 +73,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.body.classList.toggle('ai-free-mode', aiFree);
+    // AI-Free：认知心脏拉成平线；结束时“除颤”一次
+    vitals.setFlat(aiFree);
   }, [aiFree]);
 
   // 仓库（本地 / 远程）切换时重新加载

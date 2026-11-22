@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { play } from '../fun/sound';
 
 type Genre = 'science' | 'wuxia' | 'mix';
 
@@ -65,11 +66,27 @@ interface Step {
   p: number;
 }
 
+/** 首屏示例：从起始词按最高频接上几个词，直到下一步至少有 3 个候选——让人一眼看到“骰子有几个面” */
+function seedFor(model: Model, start: string): Step[] {
+  const out: Step[] = [{ tok: start, p: 1 }];
+  while (out.length < 3) {
+    const row = model.get(out[out.length - 1].tok);
+    if (!row || row.size >= 3) break;
+    const [tok] = [...row.entries()].sort((a, b) => b[1] - a[1])[0];
+    out.push({ tok, p: 1 });
+  }
+  return out;
+}
+
+const MIX_MODEL = buildModel(`${CORPORA.science} ${CORPORA.wuxia}`);
+
 export default function TemperatureDice() {
   const [genre, setGenre] = useState<Genre>('mix');
   const [temp, setTemp] = useState(0.8);
   const [start, setStart] = useState('春天');
-  const [seq, setSeq] = useState<Step[]>([{ tok: '春天', p: 1 }]);
+  const [seq, setSeq] = useState<Step[]>(() => seedFor(MIX_MODEL, '春天'));
+  const [shaking, setShaking] = useState(false);
+  const seedLen = useRef(seq.length);
   const [rolling, setRolling] = useState(false);
   const [auto, setAuto] = useState(0);
   const [showRaw, setShowRaw] = useState(false);
@@ -88,6 +105,7 @@ export default function TemperatureDice() {
     const pick = sample(dist, temp);
     if (!pick) return;
     last.current = pick.tok;
+    play('dice');
     setRolling(true);
     window.setTimeout(() => setRolling(false), 380);
     setSeq((s) => [...s, { tok: pick.tok, p: pick.p }]);
@@ -105,11 +123,13 @@ export default function TemperatureDice() {
 
   const reset = (s = start) => {
     setAuto(0);
-    setSeq([{ tok: s, p: 1 }]);
+    const seed = seedFor(model, s);
+    seedLen.current = seed.length;
+    setSeq(seed);
     last.current = null;
   };
 
-  const lowProb = seq.slice(1).filter((s) => s.p < 0.25).length;
+  const lowProb = seq.slice(seedLen.current).filter((s) => s.p < 0.25).length;
   const tempLabel = temp < 0.05 ? '贪心 · 绝对零度' : temp < 0.6 ? '低温 · 严谨求真' : temp < 1.2 ? '常温 · 平衡' : '高温 · 脑洞大开';
   const tempColor = temp < 0.6 ? '#1b6b93' : temp < 1.2 ? '#1d7453' : '#9a386c';
 
@@ -152,14 +172,14 @@ export default function TemperatureDice() {
           <div className="gen-paper">
             <div className="gen-text">
               {seq.map((s, i) => (
-                <span key={i} className={`gen-tok ${i === 0 ? 'seed' : s.p < 0.25 ? 'wild' : ''} ${i === seq.length - 1 && i > 0 ? 'fresh' : ''}`} title={i ? `采样概率 ${(s.p * 100).toFixed(0)}%` : '起始词'}>
+                <span key={i} className={`gen-tok ${i < seedLen.current ? 'seed' : s.p < 0.25 ? 'wild' : ''} ${i === seq.length - 1 && i >= seedLen.current ? 'fresh' : ''}`} title={i < seedLen.current ? (i ? '示例词（按最高频接上）' : '起始词') : `采样概率 ${(s.p * 100).toFixed(0)}%`}>
                   {s.tok}
                 </span>
               ))}
               <span className="caret" />
             </div>
             <div className="gen-foot">
-              <span>已生成 {seq.length - 1} 个 Token</span>
+              <span>已生成 {seq.length - seedLen.current} 个 Token{seedLen.current > 1 ? ` · 前 ${seedLen.current} 个为示例` : ''}</span>
               <span className={lowProb ? 'warn-text' : ''}>低概率“脑洞”词 {lowProb} 个</span>
             </div>
           </div>
@@ -209,16 +229,36 @@ export default function TemperatureDice() {
             </div>
           </div>
 
-          <div className={`die ${rolling ? 'rolling' : ''}`}>
+          <button
+            type="button"
+            className={`die ${rolling ? 'rolling' : ''} ${shaking ? 'shaking' : ''}`}
+            onPointerDown={() => dist.length && setShaking(true)}
+            onPointerUp={() => {
+              if (!shaking) return;
+              setShaking(false);
+              roll();
+            }}
+            onPointerLeave={() => setShaking(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                roll();
+              }
+            }}
+            disabled={!dist.length}
+            title="按住摇一摇，松手掷出"
+            aria-label="摇骰子：按住摇一摇，松手掷出下一个词"
+          >
             <svg viewBox="0 0 100 100" width="84" height="84">
               <polygon points="50,4 92,30 92,70 50,96 8,70 8,30" fill="rgba(154,56,108,.08)" stroke="#9a386c" strokeWidth="2" />
               <polygon points="50,4 92,30 50,50 8,30" fill="rgba(154,56,108,.05)" />
               <line x1="50" y1="50" x2="50" y2="96" stroke="rgba(154,56,108,.4)" />
               <text x="50" y="62" textAnchor="middle" className="die-text">
-                {seq.length > 1 ? `${Math.round(seq[seq.length - 1].p * 100)}%` : '?'}
+                {seq.length > seedLen.current ? `${Math.round(seq[seq.length - 1].p * 100)}%` : '?'}
               </text>
             </svg>
-          </div>
+            <small className="die-hint">{shaking ? '松手 →' : '按住摇一摇'}</small>
+          </button>
 
           <div className="dist">
             <div className="dist-head">

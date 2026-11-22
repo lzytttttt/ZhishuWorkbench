@@ -41,7 +41,7 @@ export default function Sidebar({ route, collapsed }: { route: RouteId; collapse
         {settings && <NavLink item={settings} active={route === settings.id} collapsed={collapsed} />}
         <div className="foot-meta">
           <span className="seal" title="AI Native · 智能原生">原生</span>
-          <span className="brand-ver">v0.1</span>
+          <span className="brand-ver">v0.2</span>
         </div>
       </div>
     </aside>

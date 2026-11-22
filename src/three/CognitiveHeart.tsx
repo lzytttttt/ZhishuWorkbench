@@ -3,6 +3,7 @@ import { Float, Html, Line, MeshDistortMaterial, OrbitControls, Sparkles, Stars 
 import { useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { PARTS, PHASES } from '../data/curriculum';
+import { useVitals } from '../fun/vitals';
 import type { PartId, PhaseId } from '../data/types';
 import { cv } from '../utils/css';
 import { glow } from '../utils/palette';
@@ -51,13 +52,20 @@ function Heart({ dormant, active, onSelect }: { dormant: boolean; active: boolea
   const group = useRef<THREE.Group>(null);
   const shell = useRef<THREE.Mesh>(null);
   const [hover, setHover] = useState(false);
+  // 与顶栏“认知心率”同步：心脏真的按全站的 bpm 跳动；AI-Free 时拉成平线
+  const sig = useVitals();
+  const bpmRef = useRef(sig.bpm);
+  bpmRef.current = sig.bpm;
+  const phase = useRef(0);
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, delta) => {
     const t = clock.getElapsedTime();
     const k = dormant ? 0.12 : 1;
+    phase.current += Math.min(0.1, delta) * ((bpmRef.current || 0) / 60) * Math.PI * 2;
+    const ph = phase.current;
     // 双峰心跳曲线：lub-dub
-    const lub = Math.pow(Math.max(0, Math.sin(t * 2.2)), 14) * 0.11;
-    const dub = Math.pow(Math.max(0, Math.sin(t * 2.2 - 0.55)), 14) * 0.05;
+    const lub = Math.pow(Math.max(0, Math.sin(ph)), 14) * 0.11;
+    const dub = Math.pow(Math.max(0, Math.sin(ph - 0.55)), 14) * 0.05;
     const s = (1 + (lub + dub) * k) * (active || hover ? 1.06 : 1);
     group.current?.scale.set(s, s, s);
     if (shell.current) {

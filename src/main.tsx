@@ -6,6 +6,7 @@ import { AppProvider } from './store/AppContext';
 import './styles/global.css';
 import './styles/services.css';
 import './styles/classroom.css';
+import './styles/fun.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

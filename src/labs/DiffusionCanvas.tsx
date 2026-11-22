@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import { play } from '../fun/sound';
 
 const N = 32;
 type RGB = [number, number, number];
@@ -89,10 +90,11 @@ function targetField(t: Target): Float32Array {
   return out;
 }
 
-function compose(target: Float32Array, noise: Float32Array, t: number, out: Uint8ClampedArray) {
-  const a = Math.sqrt(1 - t);
-  const b = Math.sqrt(t);
+function compose(target: Float32Array, noise: Float32Array, t: number, out: Uint8ClampedArray, mask?: Float32Array) {
   for (let p = 0; p < N * N; p++) {
+    const tp = mask ? t * mask[p] : t;
+    const a = Math.sqrt(1 - tp);
+    const b = Math.sqrt(tp);
     for (let c = 0; c < 3; c++) {
       const i = p * 3 + c;
       const v = a * target[i] + b * noise[i] * 0.9;
@@ -102,12 +104,12 @@ function compose(target: Float32Array, noise: Float32Array, t: number, out: Uint
   }
 }
 
-function paint(canvas: HTMLCanvasElement | null, target: Float32Array, noise: Float32Array, t: number): Uint8ClampedArray | null {
+function paint(canvas: HTMLCanvasElement | null, target: Float32Array, noise: Float32Array, t: number, mask?: Float32Array): Uint8ClampedArray | null {
   if (!canvas) return null;
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
   const img = ctx.createImageData(N, N);
-  compose(target, noise, t, img.data);
+  compose(target, noise, t, img.data, mask);
   ctx.putImageData(img, 0, 0);
   return img.data;
 }
@@ -127,20 +129,30 @@ function Thumb({ target, noise, t }: { target: Float32Array; noise: Float32Array
 
 export default function DiffusionCanvas() {
   const [tid, setTid] = useState(TARGETS[0].id);
-  const [t, setT] = useState(0);
+  const [t, setT] = useState(0.7);
   const [seed, setSeed] = useState(7);
   const [playing, setPlaying] = useState<'none' | 'forward' | 'reverse'>('none');
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bufRef = useRef<Uint8ClampedArray | null>(null);
+  // 刻刀刮痕：每个像素的“剩余噪声比例”（1 = 未刮）
+  const maskRef = useRef<Float32Array>(new Float32Array(N * N).fill(1));
+  const [carving, setCarving] = useState(false);
+  const [scraped, setScraped] = useState(0);
+  const [shake, setShake] = useState(false);
 
   const target = TARGETS.find((x) => x.id === tid) ?? TARGETS[0];
   const field = useMemo(() => targetField(target), [target]);
   const noise = useMemo(() => gaussianField(seed), [seed]);
 
   useEffect(() => {
-    bufRef.current = paint(canvasRef.current, field, noise, t);
-  }, [field, noise, t]);
+    bufRef.current = paint(canvasRef.current, field, noise, t, maskRef.current);
+  }, [field, noise, t, scraped]);
+
+  const clearMask = () => {
+    maskRef.current.fill(1);
+    setScraped(0);
+  };
 
   useEffect(() => {
     if (playing === 'none') return;
@@ -164,6 +176,29 @@ export default function DiffusionCanvas() {
     if (x >= 0 && x < N && y >= 0 && y < N) setHover({ x, y });
   };
 
+  /* 刮：按住在画面上拖动，刻刀刮掉局部噪声 */
+  const carve = (e: PointerEvent<HTMLCanvasElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const cx = ((e.clientX - r.left) / r.width) * N;
+    const cy = ((e.clientY - r.top) / r.height) * N;
+    const m = maskRef.current;
+    for (let y = Math.max(0, Math.floor(cy - 3)); y <= Math.min(N - 1, Math.ceil(cy + 3)); y++)
+      for (let x = Math.max(0, Math.floor(cx - 3)); x <= Math.min(N - 1, Math.ceil(cx + 3)); x++) {
+        const dd = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+        if (dd < 3) m[y * N + x] *= 0.55 + (dd / 3) * 0.4;
+      }
+    setScraped((n) => n + 1);
+  };
+
+  /* 摇：像摇雪球一样，整团画面再加一把噪声 */
+  const shakeGlobe = () => {
+    setShake(true);
+    play('dice');
+    window.setTimeout(() => setShake(false), 520);
+    clearMask();
+    setT((cur) => Math.min(1, cur + 0.25));
+  };
+
   const lens: number[][] = [];
   if (hover && bufRef.current) {
     for (let dy = -2; dy <= 2; dy++) {
@@ -185,9 +220,25 @@ export default function DiffusionCanvas() {
     <div className="lab diff-lab">
       <div className="diff-grid">
         <div className="diff-canvas-wrap">
-          <canvas ref={canvasRef} width={N} height={N} className="diff-canvas" onMouseMove={onMove} onMouseLeave={() => setHover(null)} />
+          <canvas
+            ref={canvasRef}
+            width={N}
+            height={N}
+            className={`diff-canvas chisel-cursor ${shake ? 'shake' : ''}`}
+            onMouseMove={onMove}
+            onMouseLeave={() => setHover(null)}
+            onPointerDown={(e) => {
+              if (t < 0.05) return;
+              e.currentTarget.setPointerCapture(e.pointerId);
+              setCarving(true);
+              carve(e);
+            }}
+            onPointerMove={(e) => carving && carve(e)}
+            onPointerUp={() => setCarving(false)}
+            onPointerCancel={() => setCarving(false)}
+          />
           <div className="diff-overlay mono">
-            <span>32 × 32 px</span>
+            <span>{t >= 0.05 ? '按住拖动 · 用刻刀刮开噪声' : '32 × 32 px'}</span>
             <span>
               t = {t.toFixed(2)} · {stage}
             </span>
@@ -210,12 +261,23 @@ export default function DiffusionCanvas() {
               <b className="mono">{t.toFixed(2)}</b>
             </label>
             <div className="row">
-              <button className="btn" onClick={() => setPlaying('forward')} disabled={playing !== 'none'}>
+              <button
+                className="btn"
+                onClick={() => {
+                  clearMask();
+                  setPlaying('forward');
+                }}
+                disabled={playing !== 'none'}
+              >
                 → 前向加噪
+              </button>
+              <button className="btn" onClick={shakeGlobe} disabled={playing !== 'none' || t >= 1} title="像摇雪球一样再加一把噪声">
+                ❄ 摇一摇雪球
               </button>
               <button
                 className="btn primary"
                 onClick={() => {
+                  clearMask();
                   setT(1);
                   window.setTimeout(() => setPlaying('reverse'), 60);
                 }}
@@ -223,7 +285,13 @@ export default function DiffusionCanvas() {
               >
                 ← 逆向去噪（雕刻）
               </button>
-              <button className="btn ghost" onClick={() => setSeed((s) => s + 1)}>
+              <button
+                className="btn ghost"
+                onClick={() => {
+                  clearMask();
+                  setSeed((s) => s + 1);
+                }}
+              >
                 换一团噪声
               </button>
             </div>

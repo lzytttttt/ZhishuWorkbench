@@ -10,6 +10,7 @@ import { MockLLM } from './llm/MockLLM';
 import { OpenAICompatibleLLM } from './llm/OpenAICompatibleLLM';
 import { HttpRetriever, LocalRetriever } from './retrieval/retrievers';
 import { HttpBadcaseRepository, LocalBadcaseRepository } from './storage/badcaseRepository';
+import { vitals } from '../fun/vitals';
 import { traced, withTelemetry } from './telemetry';
 import type {
   BadcaseRepository,
@@ -44,8 +45,12 @@ function tracedRetriever(inner: RetrievalProvider): RetrievalProvider {
 
 function tracedVerifier(inner: VerifierProvider): VerifierProvider {
   return {
-    check: (text, signal) =>
-      traced('verify', {}, () => inner.check(text, signal), (r) => (r.passed ? '放行' : `拦截 · ${r.label ?? ''}`)),
+    check: async (text, signal) => {
+      const r = await traced('verify', {}, () => inner.check(text, signal), (v) => (v.passed ? '放行' : `拦截 · ${v.label ?? ''}`));
+      // 被拦截：认知心率出现一次不规则心律
+      if (!r.passed) vitals.intercept();
+      return r;
+    },
   };
 }
 

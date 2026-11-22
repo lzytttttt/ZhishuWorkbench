@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { pressable } from '../fun/pressable';
+import { play } from '../fun/sound';
+import { Seal } from '../fun/Stamp';
 import { PIPELINE, PRIVACY_CARDS, RISK_LEVELS, type RiskLevel } from '../data/governance';
 import { describeError } from '../services/errors';
 import { useServices } from '../services/ServiceContext';
@@ -45,6 +48,27 @@ function RiskPyramid() {
   const h = 66;
   const hw = (y: number) => 28 + ((y - top) / (h * 4)) * 160;
   const all = RISK_LEVELS.flatMap((l) => l.examples.map((e) => ({ e, id: l.id })));
+  // 拖到金字塔楼层：放对就钉在那层，放错会滑落回来
+  const [placed, setPlaced] = useState<Record<string, RiskLevel['id']>>({});
+  const [falling, setFalling] = useState<string | null>(null);
+  const [overLayer, setOverLayer] = useState<RiskLevel['id'] | null>(null);
+  const dropOn = (layer: RiskLevel['id'], e: DragEvent<SVGGElement>) => {
+    e.preventDefault();
+    setOverLayer(null);
+    const app = e.dataTransfer.getData('application/x-zhishu-app');
+    const item = all.find((x) => x.e === app);
+    if (!item) return;
+    setSel(layer);
+    if (item.id === layer) {
+      play('stamp');
+      setPlaced((p) => ({ ...p, [app]: layer }));
+    } else {
+      play('paper');
+      setFalling(app);
+      window.setTimeout(() => setFalling((f) => (f === app ? null : f)), 900);
+    }
+  };
+  const placedCount = Object.keys(placed).length;
 
   return (
     <section className="panel risk">
@@ -61,13 +85,25 @@ function RiskPyramid() {
             const pts = `${cx - hw(y0)},${y0} ${cx + hw(y0)},${y0} ${cx + hw(y1)},${y1} ${cx - hw(y1)},${y1}`;
             const on = sel === l.id;
             return (
-              <g key={l.id} className={`py-layer ${on ? 'on' : ''}`} onClick={() => setSel(l.id)} style={cv({ '--c': l.color })}>
+              <g
+                key={l.id}
+                className={`py-layer ${on ? 'on' : ''} ${overLayer === l.id ? 'over' : ''}`}
+                onClick={() => setSel(l.id)}
+                style={cv({ '--c': l.color })}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setOverLayer(l.id);
+                }}
+                onDragLeave={() => setOverLayer(null)}
+                onDrop={(e) => dropOn(l.id, e)}
+              >
                 <polygon points={pts} />
                 <text x={cx} y={(y0 + y1) / 2 - 6} textAnchor="middle" className="py-name">
                   {l.name}
                 </text>
                 <text x={cx} y={(y0 + y1) / 2 + 13} textAnchor="middle" className="py-en">
                   {l.en}
+                  {Object.values(placed).filter((v) => v === l.id).length ? ` · 已钉 ${Object.values(placed).filter((v) => v === l.id).length}` : ''}
                 </text>
               </g>
             );
@@ -85,22 +121,43 @@ function RiskPyramid() {
         </div>
       </div>
       <div className="app-chips">
-        <small className="muted">进校准入速查：点击一个应用，查看它的风险层级</small>
+        <small className="muted">
+          进校准入速查：把应用拖到金字塔的楼层上（放错会滑落），或点一下查看它的层级 · 已归位 {placedCount}/{all.length}
+        </small>
         <div className="row wrap">
           {all.map(({ e, id }) => (
-            <button key={e} className={`chip ${sel === id ? 'on' : ''}`} onClick={() => setSel(id)}>
+            <span
+              key={e}
+              className={`chip app-chip ${sel === id ? 'on' : ''} ${placed[e] ? 'pinned' : ''} ${falling === e ? 'fall' : ''}`}
+              {...pressable(() => setSel(id))}
+              draggable={!placed[e]}
+              onDragStart={(ev) => {
+                ev.dataTransfer.setData('application/x-zhishu-app', e);
+                ev.dataTransfer.effectAllowed = 'move';
+              }}
+              style={placed[e] ? cv({ '--c': RISK_LEVELS.find((l) => l.id === placed[e])?.color ?? 'currentColor' }) : undefined}
+            >
+              {placed[e] && <i className="pin" aria-hidden />}
               {e}
-            </button>
+            </span>
           ))}
+          {placedCount > 0 && (
+            <button className="btn ghost sm" onClick={() => setPlaced({})}>
+              全部取下
+            </button>
+          )}
         </div>
       </div>
     </section>
   );
 }
 
+type Bin = 'red' | 'green';
+
 function PrivacyGame() {
-  const [bins, setBins] = useState<Record<string, 'red' | 'green'>>({});
+  const [bins, setBins] = useState<Record<string, Bin>>({});
   const [checked, setChecked] = useState(false);
+  const [over, setOver] = useState<Bin | 'none' | null>(null);
   const cycle = (id: string) => {
     setChecked(false);
     setBins((b) => {
@@ -111,44 +168,103 @@ function PrivacyGame() {
       return next;
     });
   };
+  const put = (id: string, bin: Bin | 'none') => {
+    setChecked(false);
+    play('paper');
+    setBins((b) => {
+      const next = { ...b };
+      if (bin === 'none') delete next[id];
+      else next[id] = bin;
+      return next;
+    });
+  };
   const placed = Object.keys(bins).length;
   const correct = PRIVACY_CARDS.filter((c) => bins[c.id] === (c.red ? 'red' : 'green')).length;
+
+  const zone = (bin: Bin | 'none') => ({
+    onDragOver: (e: DragEvent<HTMLDivElement>) => {
+      if (!e.dataTransfer.types.includes('application/x-zhishu-privacy')) return;
+      e.preventDefault();
+      setOver(bin);
+    },
+    onDragLeave: () => setOver(null),
+    onDrop: (e: DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setOver(null);
+      const id = e.dataTransfer.getData('application/x-zhishu-privacy');
+      if (id) put(id, bin);
+    },
+  });
+
+  const card = (c: (typeof PRIVACY_CARDS)[number]) => {
+    const b = bins[c.id];
+    const wrong = checked && b && b !== (c.red ? 'red' : 'green');
+    const right = checked && b && !wrong;
+    return (
+      <div
+        key={c.id}
+        className={`p-card ${b ?? ''} ${wrong ? 'wrong' : ''} ${right ? 'right' : ''}`}
+        {...pressable(() => cycle(c.id))}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData('application/x-zhishu-privacy', c.id);
+          e.dataTransfer.effectAllowed = 'move';
+        }}
+        title="拖进红盒 / 绿盒，或点击切换"
+      >
+        <span className="emoji">{c.emoji}</span>
+        <span>{c.text}</span>
+        {checked && b && <small>{wrong ? `再想想：${c.why}` : c.why}</small>}
+      </div>
+    );
+  };
+
+  const inBin = (bin: Bin | 'none') => PRIVACY_CARDS.filter((c) => (bin === 'none' ? !bins[c.id] : bins[c.id] === bin));
 
   return (
     <section className="panel privacy">
       <div className="section-title">
         <span className="eyebrow">TRAFFIC-LIGHT PRIVACY</span>
         <h3>红绿灯隐私卡片</h3>
-        <p className="muted">点击卡片切换：🔴 红灯（绝不告诉 AI）→ 🟢 绿灯（可以分享）→ 未分类</p>
+        <p className="muted">把卡片拖进纸盒：🔴 红盒（绝不告诉 AI）· 🟢 绿盒（可以分享）；拿不准的先留在中间。也可以点击卡片切换。</p>
       </div>
-      <div className="lights">
-        <div className="light red">
-          <span className="bulb" />
-          <b>红灯隐私</b>
-          <small>{PRIVACY_CARDS.filter((c) => bins[c.id] === 'red').length} 张</small>
+      <div className="p-boxes">
+        <div className={`p-box red ${over === 'red' ? 'over' : ''}`} {...zone('red')}>
+          <header>
+            <span className="bulb" />
+            <b>红盒 · 红灯隐私</b>
+            <small>{inBin('red').length} 张</small>
+          </header>
+          <div className="p-box-cards">{inBin('red').map(card)}</div>
         </div>
-        <div className="light green">
-          <span className="bulb" />
-          <b>绿灯信息</b>
-          <small>{PRIVACY_CARDS.filter((c) => bins[c.id] === 'green').length} 张</small>
+        <div className={`p-box none ${over === 'none' ? 'over' : ''}`} {...zone('none')}>
+          <header>
+            <b>未分类</b>
+            <small>{inBin('none').length} 张</small>
+          </header>
+          <div className="p-box-cards">
+            {inBin('none').map(card)}
+            {!inBin('none').length && <span className="muted small">都分好了，点「核对答案」看看</span>}
+          </div>
         </div>
-      </div>
-      <div className="p-cards">
-        {PRIVACY_CARDS.map((c) => {
-          const b = bins[c.id];
-          const wrong = checked && b && b !== (c.red ? 'red' : 'green');
-          const right = checked && b && !wrong;
-          return (
-            <button key={c.id} className={`p-card ${b ?? ''} ${wrong ? 'wrong' : ''} ${right ? 'right' : ''}`} onClick={() => cycle(c.id)}>
-              <span className="emoji">{c.emoji}</span>
-              <span>{c.text}</span>
-              {checked && b && <small>{c.why}</small>}
-            </button>
-          );
-        })}
+        <div className={`p-box green ${over === 'green' ? 'over' : ''}`} {...zone('green')}>
+          <header>
+            <span className="bulb" />
+            <b>绿盒 · 绿灯信息</b>
+            <small>{inBin('green').length} 张</small>
+          </header>
+          <div className="p-box-cards">{inBin('green').map(card)}</div>
+        </div>
       </div>
       <div className="row">
-        <button className="btn primary" onClick={() => setChecked(true)} disabled={!placed}>
+        <button
+          className="btn primary"
+          onClick={() => {
+            play('paper');
+            setChecked(true);
+          }}
+          disabled={!placed}
+        >
           核对答案
         </button>
         <button
@@ -161,9 +277,9 @@ function PrivacyGame() {
           重置
         </button>
         {checked && (
-          <span className={`verdict-inline ${correct === PRIVACY_CARDS.length ? 'ok' : 'bad'}`}>
+          <span className={`verdict-inline ${correct === PRIVACY_CARDS.length ? 'ok' : 'soft-miss'}`}>
             答对 {correct} / {PRIVACY_CARDS.length}
-            {correct === PRIVACY_CARDS.length ? ' · 隐私守护者！' : ''}
+            {correct === PRIVACY_CARDS.length ? ' · 隐私守护者！' : ' · 放错的卡片会轻轻晃一下，读读它的理由再挪一挪'}
           </span>
         )}
       </div>
@@ -209,7 +325,7 @@ function VerifierSim() {
     <section className="panel verifier">
       <div className="section-title">
         <span className="eyebrow">VERIFIER LLM · 双层安全校验</span>
-        <h3>输出在抵达学生终端前，必须经过两道闸门</h3>
+        <h3>每一句话都是一个包裹：抵达学生终端前，要过五道闸</h3>
       </div>
       <div className="row wrap">
         {VERIFIER_PRESETS.map((p) => (
@@ -228,11 +344,34 @@ function VerifierSim() {
       </div>
       <div className="row">
         <input className="search grow" value={input} onChange={(e) => setInput(e.target.value)} />
-        <button className="btn primary" onClick={run}>
-          发送并校验
+        <button
+          className="btn primary"
+          onClick={() => {
+            play('paper');
+            void run();
+          }}
+        >
+          寄出包裹 · 过五道闸
         </button>
       </div>
-      <div className="pipeline big">
+      <div className={`pipeline big gates ${finished && result ? (result.passed ? 'passed' : 'blocked') : ''}`}>
+        {step >= 0 && (
+          <span
+            className={`parcel ${finished && result && !result.passed ? 'bounce' : ''}`}
+            style={{ left: `${((Math.min(step, PIPELINE.length - 1) + 0.5) / PIPELINE.length) * 100}%` }}
+            aria-hidden
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
+              <path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z" />
+              <path d="M3.5 7.5 12 12l8.5-4.5M12 12v9" />
+            </svg>
+            {finished && result && (
+              <span className="parcel-seal">
+                <Seal label={result.passed ? '放行' : '拦截'} size="xs" tone={result.passed ? 'ink' : 'cinnabar'} />
+              </span>
+            )}
+          </span>
+        )}
         {PIPELINE.map((p, i) => {
           const blocked = finished && result !== null && !result.passed && i === result.stage;
           const pass = step > i || (finished && result !== null && result.passed);

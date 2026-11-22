@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { Logo } from '../components/Icons';
+import { play, setClassMode } from '../fun/sound';
 import { LESSONS } from '../data/curriculum';
 import { useClassSession, type ConnStatus } from '../hooks/useClassSession';
 import { navigate } from '../hooks/useHashRoute';
@@ -40,6 +41,13 @@ export default function StudentApp({ initialCode }: { initialCode?: string }) {
       document.title = '知枢 · AI Native 教学工作台';
     };
   }, []);
+
+  // 课堂模式：声音默认开启
+  const classOpen = Boolean(state?.open);
+  useEffect(() => {
+    setClassMode(classOpen);
+    return () => setClassMode(false);
+  }, [classOpen]);
 
   // 在线心跳
   useEffect(() => {
@@ -107,7 +115,7 @@ export default function StudentApp({ initialCode }: { initialCode?: string }) {
   } else if (aiFree) {
     body = <AiFreeScreen task={state.aiFree.task} since={state.aiFree.since} studentId={active.id} />;
   } else if (!state.activity) {
-    body = <Waiting lessonTitle={lesson?.title} hook={lesson?.hook} />;
+    body = <Waiting lessonTitle={lesson?.title} hook={lesson?.hook} storeKey={`${active.id}.${state.lessonId}`} />;
   } else if (state.activity.kind === 'poll') {
     body = <StudentPoll key={state.activity.id} act={state.activity} state={state} me={active} publish={publish} />;
   } else if (state.activity.kind === 'audit') {
@@ -269,7 +277,7 @@ function JoinScreen({ initialCode, onJoined }: { initialCode: string; onJoined: 
 }
 
 /* ---------------- 各种状态页 ---------------- */
-function Waiting({ lessonTitle, hook }: { lessonTitle?: string; hook?: string }) {
+function Waiting({ lessonTitle, hook, storeKey }: { lessonTitle?: string; hook?: string; storeKey: string }) {
   return (
     <section className="s-card s-waiting">
       <div className="wait-mark" aria-hidden>
@@ -278,8 +286,54 @@ function Waiting({ lessonTitle, hook }: { lessonTitle?: string; hook?: string })
       <b>等待老师发起活动…</b>
       {lessonTitle && <span className="muted">本节课：{lessonTitle}</span>}
       {hook && <blockquote className="wait-hook">{hook}</blockquote>}
-      <p className="s-hint">先想一想：关于这个问题，你现在相信什么？为什么？</p>
+      <PredictCard storeKey={storeKey} />
     </section>
+  );
+}
+
+/* 预判卡：先写下“我现在相信什么”，折起来；揭晓之后再翻开对照 */
+function PredictCard({ storeKey }: { storeKey: string }) {
+  const key = `zhishu.v1.predict.${storeKey}`;
+  const [card, setCard] = useState<{ text: string; folded: boolean }>(() => {
+    try {
+      const raw = sessionStorage.getItem(key);
+      return raw ? (JSON.parse(raw) as { text: string; folded: boolean }) : { text: '', folded: false };
+    } catch {
+      return { text: '', folded: false };
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(key, JSON.stringify(card));
+    } catch {
+      /* ignore */
+    }
+  }, [key, card]);
+
+  const fold = (folded: boolean) => {
+    play('paper');
+    setCard((c) => ({ ...c, folded }));
+  };
+
+  return (
+    <div className={`predict-card ${card.folded ? 'folded' : ''}`}>
+      {card.folded ? (
+        <button className="pc-folded" onClick={() => fold(false)} title="翻开预判卡">
+          <span className="pc-flap" aria-hidden />
+          <b>预判卡已折好</b>
+          <small>揭晓之后翻开，对照一下当初的自己 ↺</small>
+        </button>
+      ) : (
+        <>
+          <span className="pc-kicker">预判卡 · 只给自己看</span>
+          <p className="s-hint">先想一想：关于这个问题，你现在相信什么？为什么？</p>
+          <textarea rows={3} value={card.text} onChange={(e) => setCard((c) => ({ ...c, text: e.target.value }))} placeholder="写一句就够：我猜……因为……" />
+          <button className="btn sm" onClick={() => fold(true)} disabled={!card.text.trim()}>
+            折起来 ⤵
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -333,7 +387,7 @@ function Loading() {
   return (
     <div className="loading">
       <div className="loading-orb" />
-      <span>正在进入课堂…</span>
+      <span>正在推开教室的门…</span>
     </div>
   );
 }

@@ -21,6 +21,14 @@ const PIPE = ['文档切块', '向量化入库', '语义检索匹配', '注入�
 const HONEST_RE = /不知道|不确定|无法确定|没有找到/;
 const pace = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 
+/* 首屏演示：上一节课的一次提问（静态示例，不调用模型） */
+const DEMO = {
+  question: QUESTIONS[0],
+  closed: '知枢实验学校的图书馆建于 1998 年，是一座五层的现代化建筑，由著名建筑师设计，藏书超过 30 万册。',
+  open: '学校图书馆“澄怀楼”于 2003 年落成，藏书约 12 万册【片段 2】。',
+  hit: '2',
+};
+
 function renderCited(text: string): ReactNode[] {
   return text.split(/(【片段\s*\d+】)/).map((part, i) =>
     /^【片段\s*\d+】$/.test(part) ? (
@@ -117,6 +125,7 @@ export default function RagExam() {
     }
   };
 
+  const demo = !asked;
   const hitMap = new Map(hits.map((h) => [h.chunk.id, h.score]));
   const closedHonest = HONEST_RE.test(closed.text);
   const openGrounded = hits.length > 0 && !HONEST_RE.test(open.text);
@@ -159,7 +168,13 @@ export default function RagExam() {
               <span>R-tuning 拒答训练</span>
             </label>
           </header>
-          {asked ? (
+          {demo ? (
+            <div className="answer fake demo">
+              <span className="demo-ribbon">示例 · 上节课的提问：{DEMO.question}</span>
+              <p>{DEMO.closed}</p>
+              <span className="stamp">⚠ 未经核查的闭卷回答</span>
+            </div>
+          ) : asked ? (
             <div className={`answer ${closed.status === 'done' ? (closedHonest ? 'honest' : 'fake') : ''}`}>
               {closed.status === 'error' ? (
                 <p className="err">{closed.error}</p>
@@ -188,16 +203,20 @@ export default function RagExam() {
           </header>
           <div className="pipeline">
             {PIPE.map((p, i) => (
-              <div key={p} className={`pipe-step ${step === i ? 'active' : ''} ${step > i ? 'pass' : ''}`}>
+              <div key={p} className={`pipe-step ${step === i ? 'active' : ''} ${step > i || demo ? 'pass' : ''}`}>
                 <span className="mono">{i + 1}</span>
                 {p}
               </div>
             ))}
           </div>
-          {!asked ? (
-            <div className="answer empty">等待提问…</div>
+          {demo ? (
+            <div className="answer cited demo">
+              <span className="demo-ribbon">示例 · 点上方「同时提问两位考生」重演一遍</span>
+              <p>{renderCited(DEMO.open)}</p>
+              <span className="stamp ok">✓ 有据可查</span>
+            </div>
           ) : step >= 0 && step < 4 ? (
-            <div className="answer empty">检索中…</div>
+            <div className="answer empty">正在翻书…</div>
           ) : (
             <div className={`answer ${open.status === 'done' ? (openGrounded ? 'cited' : 'honest') : ''}`}>
               {open.status === 'error' ? (
@@ -227,8 +246,8 @@ export default function RagExam() {
         ) : (
           <div className="kb-chunks">
             {chunks.map((c) => {
-              const score = hitMap.get(c.id);
-              const hot = step >= 3 && score !== undefined;
+              const score = demo && c.id === DEMO.hit ? 0.86 : hitMap.get(c.id);
+              const hot = (demo || step >= 3) && score !== undefined;
               return (
                 <div key={c.id} className={`chunk ${hot ? 'hot' : ''}`}>
                   <span className="chunk-no mono">片段 {c.id}</span>

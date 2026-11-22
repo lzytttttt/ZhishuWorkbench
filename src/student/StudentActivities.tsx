@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { ARB_CASES, KIND_META } from '../data/arbitration';
 import type { BadcaseKind } from '../data/types';
+import ScratchCard from '../fun/ScratchCard';
+import { play } from '../fun/sound';
+import { Seal } from '../fun/Stamp';
 import { useNow } from '../hooks/useNow';
 import { tally } from '../services/classroom/reducer';
 import type { AuditActivity, ClassEvent, ClassState, PollActivity } from '../services/classroom/types';
@@ -19,10 +22,15 @@ export function StudentPoll({ act, state, me, publish }: { act: PollActivity; st
   const revealed = !!state.revealed[act.id];
   const counts = tally(state, act);
   const total = counts.reduce((a, b) => a + b, 0);
+  // 知识题揭晓后先盖一层宣纸：自己刮开才看到正确答案
+  const [uncovered, setUncovered] = useState(false);
+  const hasAnswer = act.answer !== undefined;
+  const showAnswer = revealed && (!hasAnswer || uncovered);
 
   const vote = (i: number) => {
     if (revealed) return;
     setErr(null);
+    play('paper');
     publish({ type: 'poll.vote', activityId: act.id, option: i }).catch((e: unknown) => setErr(describeError(e)));
   };
 
@@ -30,11 +38,21 @@ export function StudentPoll({ act, state, me, publish }: { act: PollActivity; st
     <section className="s-card s-poll">
       <div className="s-kicker">课堂投票{act.answer !== undefined ? ' · 知识题' : ' · 观点题'}</div>
       <h2 className="s-q">{act.question}</h2>
+      {revealed && hasAnswer && (
+        <ScratchCard label="老师揭晓了 · 刮开看正确答案" onReveal={() => setUncovered(true)}>
+          <div className="scratch-answer">
+            <small>正确答案</small>
+            <b>
+              {String.fromCharCode(65 + act.answer!)} · {act.options[act.answer!]}
+            </b>
+          </div>
+        </ScratchCard>
+      )}
       <div className="s-options">
         {act.options.map((o, i) => {
           const pctv = total ? Math.round((counts[i] / total) * 100) : 0;
-          const isAnswer = revealed && act.answer === i;
-          const isWrongMine = revealed && act.answer !== undefined && myVote === i && act.answer !== i;
+          const isAnswer = showAnswer && act.answer === i;
+          const isWrongMine = showAnswer && hasAnswer && myVote === i && act.answer !== i;
           return (
             <button
               key={i}
@@ -46,12 +64,32 @@ export function StudentPoll({ act, state, me, publish }: { act: PollActivity; st
               <span className="s-letter mono">{String.fromCharCode(65 + i)}</span>
               <span className="s-text">{o}</span>
               {revealed && <span className="s-pct mono">{pctv}%</span>}
-              {isAnswer && <span className="s-badge ok">正确答案</span>}
+              {isAnswer && (
+                <span className="s-answer-seal">
+                  <Seal label="正解" size="sm" />
+                </span>
+              )}
               {myVote === i && !revealed && <span className="s-badge">我的选择</span>}
             </button>
           );
         })}
       </div>
+      {showAnswer && hasAnswer && myVote !== undefined && (
+        <div className={`s-verdict ${myVote === act.answer ? 'ok' : 'miss'}`} role="status">
+          {myVote === act.answer ? (
+            <>
+              <b>你的判断和答案对上了</b>
+              <span>想一想：你是凭什么知道的？把这条依据讲给同桌听。</span>
+            </>
+          ) : (
+            <>
+              <i className="ink-bloom" aria-hidden />
+              <b>这正是我们要抓的 Badcase</b>
+              <span>你的直觉和答案岔开了——没关系，记下“我为什么这么想”，它就是今天最有价值的线索。</span>
+            </>
+          )}
+        </div>
+      )}
       <p className="s-hint">
         {revealed
           ? `老师已揭晓结果 · 共 ${total} 人投票`
@@ -219,6 +257,8 @@ export function AiFreeScreen({ task, since, studentId }: { task?: string; since?
       return '';
     }
   });
+  const [folded, setFolded] = useState(false);
+  const elapsed = Math.max(0, Math.floor((now - (since ?? now)) / 1000));
 
   useEffect(() => {
     try {
@@ -228,20 +268,87 @@ export function AiFreeScreen({ task, since, studentId }: { task?: string; since?
     }
   }, [key, notes]);
 
+  const fold = (v: boolean) => {
+    play('paper');
+    setFolded(v);
+  };
+
   return (
     <section className="aifree-screen">
       <div className="af-seal">无 AI</div>
       <div className="af-head">
         <span className="af-dot" />
         <b>AI-Free 独立推演时段</b>
-        <span className="mono af-timer">{fmtClock(Math.floor((now - (since ?? now)) / 1000))}</span>
+        <span className="mono af-timer">{fmtClock(elapsed)}</span>
       </div>
-      <p className="af-task">{task || '合上屏幕，用纸和笔独立完成老师布置的任务。'}</p>
-      <p className="af-note">所有 AI 功能已暂停。这是锻炼你独立思考“肌肉”的时间——先自己想，再请 AI 帮忙。</p>
-      <label className="notepad">
-        <span>我的草稿（只保存在这台设备上）</span>
-        <textarea rows={8} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="写下你的问题定义、思路草图或第一版答案……" />
-      </label>
+      <div className="af-body">
+        <div className="af-text">
+          <p className="af-task">{task || '合上屏幕，用纸和笔独立完成老师布置的任务。'}</p>
+          <p className="af-note">所有 AI 功能已暂停。这是锻炼你独立思考“肌肉”的时间——先自己想，再请 AI 帮忙。</p>
+        </div>
+        <IncenseCoil elapsed={elapsed} />
+      </div>
+      {folded ? (
+        <button className="notepad-folded" onClick={() => fold(false)}>
+          <span className="nf-corner" aria-hidden />
+          <b>草稿已折角收起</b>
+          <small>{notes.trim() ? `${Array.from(notes.trim()).length} 字 · 点开继续写` : '点开继续写'}</small>
+        </button>
+      ) : (
+        <div className="notepad">
+          <label htmlFor="af-notes">我的草稿（只保存在这台设备上）</label>
+          <button type="button" className="np-corner" onClick={() => fold(true)} title="折角收起草稿" aria-label="折角收起草稿" />
+          <textarea id="af-notes" rows={8} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="写下你的问题定义、思路草图或第一版答案……" />
+        </div>
+      )}
     </section>
+  );
+}
+
+/* 香篆计时：一炷香 15 分钟，从外圈向内慢慢燃尽；只计时，不打分 */
+const COIL_SEC = 15 * 60;
+const COIL = (() => {
+  const pts: { x: number; y: number }[] = [];
+  const turns = 3.25;
+  const max = Math.PI * 2 * turns;
+  for (let k = 0; k <= 240; k++) {
+    const th = max - (k / 240) * max; // 外圈 → 内圈
+    const r = 7 + 41 * (th / max);
+    pts.push({ x: 60 + r * Math.cos(th - Math.PI / 2), y: 60 + r * Math.sin(th - Math.PI / 2) });
+  }
+  const cum = [0];
+  for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y));
+  const total = cum[cum.length - 1];
+  const d = pts.map((p, k) => `${k ? 'L' : 'M'}${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ');
+  const at = (f: number) => {
+    const target = f * total;
+    let k = cum.findIndex((c) => c >= target);
+    if (k < 0) k = pts.length - 1;
+    return pts[k];
+  };
+  return { d, at };
+})();
+
+function IncenseCoil({ elapsed }: { elapsed: number }) {
+  const round = Math.floor(elapsed / COIL_SEC);
+  const f = (elapsed % COIL_SEC) / COIL_SEC;
+  const p = f * 100;
+  const ember = COIL.at(f);
+  return (
+    <figure className="incense" aria-label={`香篆计时：第 ${round + 1} 炷香，已燃 ${Math.round(f * 100)}%`}>
+      <svg width="120" height="120" viewBox="0 0 120 120" aria-hidden>
+        <circle cx="60" cy="60" r="56" className="ic-tray" />
+        <path d={COIL.d} pathLength={100} className="ic-ash" />
+        <path d={COIL.d} pathLength={100} className="ic-coil" style={{ strokeDasharray: `${100 - p} 100`, strokeDashoffset: -p }} />
+        <g transform={`translate(${ember.x} ${ember.y})`}>
+          <circle r="2.6" className="ic-ember" />
+          <path d="M0 -4 C -4 -10, 4 -14, 0 -20 C -3 -25, 3 -28, 1 -33" className="ic-smoke" />
+        </g>
+      </svg>
+      <figcaption>
+        香篆 · 第 {round + 1} 炷
+        <small>一炷 15 分钟，慢慢想</small>
+      </figcaption>
+    </figure>
   );
 }

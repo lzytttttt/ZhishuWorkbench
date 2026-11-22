@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type PointerEvent } from 'react';
+import { play } from '../fun/sound';
 
 interface Preset {
   id: string;
@@ -64,6 +65,8 @@ export default function AttentionThreads() {
   const [guess, setGuess] = useState<number | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [view, setView] = useState<'threads' | 'matrix'>('threads');
+  const [pull, setPull] = useState<{ x: number; y: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
 
   const n = preset.tokens.length;
   const matrix = useMemo(() => preset.tokens.map((_, i) => (i === preset.focus ? preset.weights : heuristicRow(n, i))), [preset, n]);
@@ -80,6 +83,41 @@ export default function AttentionThreads() {
     const h = Math.min(200, 40 + Math.abs(x2 - fx) * 0.42);
     return `M ${fx} ${baseY - 24} Q ${(fx + x2) / 2} ${baseY - 24 - h} ${x2} ${baseY - 24}`;
   };
+
+  /* 拉毛线：从焦点卡片按住拖出一根线，松手落在哪张卡片上就连向哪里 */
+  const toSvg = (e: PointerEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    const m = svg?.getScreenCTM();
+    if (!svg || !m) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const p = pt.matrixTransform(m.inverse());
+    return { x: p.x, y: p.y };
+  };
+  const startPull = (e: PointerEvent<SVGSVGElement>) => {
+    if (revealed) return;
+    const p = toSvg(e);
+    if (!p || Math.abs(p.x - fx) > gap / 2 || Math.abs(p.y - baseY) > 30) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setPull(p);
+  };
+  const movePull = (e: PointerEvent<SVGSVGElement>) => {
+    if (!pull) return;
+    const p = toSvg(e);
+    if (p) setPull(p);
+  };
+  const endPull = () => {
+    if (!pull) return;
+    const j = Math.max(0, Math.min(n - 1, Math.floor(pull.x / gap)));
+    if (j !== preset.focus && pull.y > baseY - 70) {
+      setGuess(j);
+      play('paper');
+    }
+    setPull(null);
+  };
+  const dangle = `M ${fx} ${baseY - 24} C ${fx - 30} ${baseY - 70}, ${fx + 40} ${baseY - 110}, ${fx} ${baseY - 150}`;
+  const pullPath = pull ? `M ${fx} ${baseY - 24} Q ${(fx + pull.x) / 2} ${Math.min(pull.y, baseY - 24) - 60} ${pull.x} ${pull.y}` : '';
 
   const choose = (id: string) => {
     setPid(id);
@@ -111,9 +149,17 @@ export default function AttentionThreads() {
       {view === 'threads' ? (
         <div className="attn-stage">
           <p className="attn-prompt">
-            第一步（无 AI）：你认为高亮的“<b>{preset.tokens[preset.focus]}</b>”最应该连向哪张卡片？点击卡片放下你的毛线。
+            第一步（无 AI）：从高亮的“<b>{preset.tokens[preset.focus]}</b>”按住拉一根毛线，落到你认为它最该连向的卡片上（也可以直接点卡片）。
           </p>
-          <svg viewBox={`0 0 ${W} ${H}`} className="attn-svg">
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${W} ${H}`}
+            className={`attn-svg yarn-cursor ${pull ? 'pulling' : ''}`}
+            onPointerDown={startPull}
+            onPointerMove={movePull}
+            onPointerUp={endPull}
+            onPointerCancel={() => setPull(null)}
+          >
             <defs>
               <linearGradient id="threadG" x1="0" y1="0" x2="1" y2="0">
                 <stop offset="0" stopColor="#1b6b93" />
@@ -126,7 +172,17 @@ export default function AttentionThreads() {
                   <path key={j} d={arc(j)} fill="none" stroke="url(#threadG)" strokeWidth={1 + w * 22} strokeLinecap="round" opacity={0.25 + w * 1.3} className="thread" style={{ animationDelay: `${j * 60}ms` }} />
                 ),
               )}
-            {guess !== null && guess !== preset.focus && <path d={arc(guess)} fill="none" stroke="#c83e2b" strokeWidth={3} strokeDasharray="6 6" className="yarn" />}
+            {guess === null && !pull && !revealed && (
+              <g className="yarn-dangle" aria-hidden>
+                <path d={dangle} fill="none" stroke="#c83e2b" strokeWidth={2.4} strokeDasharray="5 5" strokeLinecap="round" />
+                <circle cx={fx} cy={baseY - 164} r={14} className="yarn-q" />
+                <text x={fx} y={baseY - 163} textAnchor="middle" dominantBaseline="middle" className="yarn-q-text">
+                  ？
+                </text>
+              </g>
+            )}
+            {pull && <path d={pullPath} fill="none" stroke="#c83e2b" strokeWidth={3} strokeLinecap="round" className="yarn live" />}
+            {guess !== null && guess !== preset.focus && !pull && <path d={arc(guess)} fill="none" stroke="#c83e2b" strokeWidth={3} strokeDasharray="6 6" className="yarn" />}
             {preset.tokens.map((t, i) => {
               const isFocus = i === preset.focus;
               const w = preset.weights[i];
@@ -146,7 +202,14 @@ export default function AttentionThreads() {
             })}
           </svg>
           <div className="row">
-            <button className="btn primary" onClick={() => setRevealed(true)} disabled={revealed}>
+            <button
+              className="btn primary"
+              onClick={() => {
+                play('paper');
+                setRevealed(true);
+              }}
+              disabled={revealed}
+            >
               第二步：揭晓模型的注意力
             </button>
             <button
@@ -159,8 +222,8 @@ export default function AttentionThreads() {
               重来
             </button>
             {revealed && guess !== null && (
-              <span className={`verdict-inline ${guess === preset.answer ? 'ok' : 'bad'}`}>
-                {guess === preset.answer ? '✓ 你的毛线与模型的最强连线一致' : `✗ 模型最强连线指向“${preset.tokens[preset.answer]}”`}
+              <span className={`verdict-inline ${guess === preset.answer ? 'ok' : 'soft-miss'}`}>
+                {guess === preset.answer ? '✓ 接上了：你的毛线与模型的最强连线一致' : `毛线接偏了一点——模型最强的那根连向“${preset.tokens[preset.answer]}”。这正是值得追问的地方：它看到了哪个你没注意的词？`}
               </span>
             )}
           </div>
