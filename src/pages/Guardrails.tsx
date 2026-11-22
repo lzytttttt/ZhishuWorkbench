@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
+import PageHeader from '../components/PageHeader';
+import { pageMeta } from '../data/nav';
 import { pressable } from '../fun/pressable';
 import { play } from '../fun/sound';
 import { Seal } from '../fun/Stamp';
@@ -16,25 +18,13 @@ const VERIFIER_PRESETS = [
   '为什么女生天生学不好数学？',
 ];
 
-export default function Guardrails() {
+export default function Guardrails({ sub }: { sub?: string }) {
+  const { item, tab, tabs } = pageMeta('guardrails', sub);
   return (
     <div className="page guard">
-      <header className="page-head">
-        <div>
-          <div className="eyebrow">SAFETY GUARDRAILS · 刹车系统</div>
-          <h1 className="display sm">
-            安全护栏 <em>把伦理变成架构中的硬约束</em>
-          </h1>
-          <p className="lead">校园 AI 四级风险准入、红绿灯隐私启蒙、独立 Verifier LLM 双层校验，以及 30 分钟紧急回滚与灰度发布机制。</p>
-        </div>
-      </header>
-      <div className="guard-grid">
-        <RiskPyramid />
-        <PrivacyGame />
-      </div>
-      <div className="guard-grid">
-        <VerifierSim />
-        <ReleaseControl />
+      <PageHeader route="guardrails" title={item.label} desc={tab.desc} tabs={tabs} active={tab.id} />
+      <div className="tab-pane guard-pane" key={tab.id}>
+        {tab.id === 'privacy' ? <PrivacyGame /> : tab.id === 'verifier' ? <VerifierSim /> : tab.id === 'release' ? <ReleaseControl /> : <RiskPyramid />}
       </div>
     </div>
   );
@@ -72,10 +62,7 @@ function RiskPyramid() {
 
   return (
     <section className="panel risk">
-      <div className="section-title">
-        <span className="eyebrow">FOUR-TIER RISK ADMISSION</span>
-        <h3>校园 AI 四级风险准入清单</h3>
-      </div>
+      <div className="eyebrow pane-eyebrow">FOUR-TIER RISK ADMISSION</div>
       <div className="risk-body">
         <svg viewBox={`0 0 ${W} ${top + h * 4 + 10}`} className="pyramid">
           {RISK_LEVELS.map((l, i) => {
@@ -225,7 +212,6 @@ function PrivacyGame() {
     <section className="panel privacy">
       <div className="section-title">
         <span className="eyebrow">TRAFFIC-LIGHT PRIVACY</span>
-        <h3>红绿灯隐私卡片</h3>
         <p className="muted">把卡片拖进纸盒：🔴 红盒（绝不告诉 AI）· 🟢 绿盒（可以分享）；拿不准的先留在中间。也可以点击卡片切换。</p>
       </div>
       <div className="p-boxes">
@@ -323,10 +309,7 @@ function VerifierSim() {
 
   return (
     <section className="panel verifier">
-      <div className="section-title">
-        <span className="eyebrow">VERIFIER LLM · 双层安全校验</span>
-        <h3>每一句话都是一个包裹：抵达学生终端前，要过五道闸</h3>
-      </div>
+      <div className="eyebrow pane-eyebrow">VERIFIER LLM · 双层安全校验</div>
       <div className="row wrap">
         {VERIFIER_PRESETS.map((p) => (
           <button
@@ -449,10 +432,7 @@ function ReleaseControl() {
 
   return (
     <section className="panel release">
-      <div className="section-title">
-        <span className="eyebrow">GRAY RELEASE · ROLLBACK</span>
-        <h3>教学提示词灰度发布与 30 分钟回滚窗口</h3>
-      </div>
+      <div className="eyebrow pane-eyebrow">GRAY RELEASE · ROLLBACK</div>
       <div className="versions">
         <div className="ver stable">
           <small>稳定版</small>

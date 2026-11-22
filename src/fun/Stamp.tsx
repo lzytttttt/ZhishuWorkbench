@@ -145,22 +145,33 @@ const fmtTime = (t: number) => {
 };
 
 export function StampDrawer() {
-  const { records, clear } = useStamp();
+  const { records } = useStamp();
   const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [open]);
-
   return (
     <>
       <button className={`stamp-drawer-btn ${open ? 'on' : ''}`} onClick={() => setOpen((v) => !v)} title="印章抽屉 · 决策与透明度记录" aria-expanded={open}>
         <span className="sdb-seal">印</span>
         {records.length > 0 && <b className="mono">{records.length > 99 ? '99+' : records.length}</b>}
       </button>
+      <StampDrawerPanel open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
+/** 印章抽屉面板（不含触发按钮），可由任意入口控制开合 */
+export function StampDrawerPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { records, clear } = useStamp();
+  const setOpen = (v: boolean) => !v && onClose();
+
+  useEffect(() => {
+    if (!open) return;
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [open, onClose]);
+
+  return (
+    <>
       {open && (
         <div className="stamp-drawer-scrim" onClick={() => setOpen(false)}>
           <aside className="stamp-drawer" onClick={(e) => e.stopPropagation()} aria-label="印章抽屉">

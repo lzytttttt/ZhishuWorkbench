@@ -7,6 +7,9 @@ import { EmptyState, LineArt } from '../fun/LineArt';
 import PullCord from '../fun/PullCord';
 import { play } from '../fun/sound';
 import { Seal, useStamp } from '../fun/Stamp';
+import PageHeader, { SubNav } from '../components/PageHeader';
+import { pageMeta } from '../data/nav';
+import { navigate } from '../hooks/useHashRoute';
 import { useNow } from '../hooks/useNow';
 import { sentenceKey, tally } from '../services/classroom/reducer';
 import type { AuditActivity, ChatActivity, ClassState, Participant, PollActivity, Submission } from '../services/classroom/types';
@@ -31,7 +34,7 @@ const POLL_TEMPLATES: { title: string; question: string; options: string[]; answ
 
 const studentLink = (code: string) => `${window.location.origin}${window.location.pathname}#/student/${code}`;
 
-export default function Classroom() {
+export default function Classroom({ sub }: { sub?: string }) {
   const t = useTeacherClass();
 
   if (!t.code) return <StartPanel />;
@@ -69,7 +72,7 @@ export default function Classroom() {
       </div>
     );
   }
-  return <Console state={t.state} />;
+  return <Console state={t.state} sub={sub} />;
 }
 
 /* ---------------- 开课 ---------------- */
@@ -83,15 +86,7 @@ function StartPanel() {
 
   return (
     <div className="page classroom wide">
-      <header className="page-head">
-        <div>
-          <div className="eyebrow">CLASSROOM LIVE</div>
-          <h1 className="display sm">
-            课堂直播 <em>老师编排节奏，学生执掌判断</em>
-          </h1>
-          <p className="lead">开启课堂后，学生用 6 位课堂码和昵称加入。你可以发起投票、共建 Badcase、开放学习伙伴，或一键让全班进入 AI-Free 独立推演时段。</p>
-        </div>
-      </header>
+      <PageHeader route="classroom" title="课堂直播" desc="老师编排节奏，学生执掌判断。开课后，学生用 6 位课堂码和昵称加入。" />
       <section className="panel start-hero" style={cv({ '--c': PART_MAP[lesson.part].color })}>
         <div className="sh-left">
           <label className="field">
@@ -141,7 +136,7 @@ function StartPanel() {
 }
 
 /* ---------------- 主控台 ---------------- */
-function Console({ state }: { state: ClassState }) {
+function Console({ state, sub }: { state: ClassState; sub?: string }) {
   const t = useTeacherClass();
   const { classroom } = useServices();
   const { stamp } = useStamp();
@@ -150,6 +145,14 @@ function Console({ state }: { state: ClassState }) {
   const lesson = LESSONS.find((l) => l.id === state.lessonId) ?? LESSONS[0];
   const online = state.students.filter((s) => now - (t.lastSeen[s.id] ?? 0) < ONLINE_MS).length;
   const link = studentLink(state.code);
+  const { tab, tabs } = pageMeta('classroom', sub);
+  const pending = state.submissions.filter((s) => !state.reviews[s.id]).length;
+  const subTabs = tabs.map((x) => ({
+    id: x.id,
+    label: x.label,
+    hint: x.desc,
+    badge: x.id === 'review' ? pending : x.id === 'seats' ? `${online}/${state.students.length}` : undefined,
+  }));
 
   const copy = async () => {
     try {
@@ -198,14 +201,29 @@ function Console({ state }: { state: ClassState }) {
       </section>
       {t.actionError && <p className="err">{t.actionError}</p>}
 
-      <div className="cls-grid">
-        <Launcher state={state} />
-        <div className="cls-live">
-          <LivePanel state={state} />
-          <ScriptBoard key={state.code} state={state} />
-          <Queue state={state} />
-        </div>
-        <SeatMap state={state} now={now} />
+      <SubNav route="classroom" tabs={subTabs} active={tab.id} />
+
+      <div className="tab-pane" key={tab.id}>
+        {tab.id === 'stage' && (
+          <div className="cls-stage">
+            <Launcher state={state} />
+            <LivePanel state={state} />
+          </div>
+        )}
+        {tab.id === 'script' && <ScriptBoard key={state.code} state={state} />}
+        {tab.id === 'review' &&
+          (state.submissions.length ? (
+            <Queue state={state} />
+          ) : (
+            <section className="panel cls-notice">
+              <EmptyState kind="scroll" title="还没有 Badcase 线索" hint="在「讲台」发起“共建 Badcase”，学生用审计画笔标出的问题句会汇集到这里。" />
+            </section>
+          ))}
+        {tab.id === 'seats' && (
+          <div className="cls-seats">
+            <SeatMap state={state} now={now} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -432,7 +450,7 @@ function LivePanel({ state }: { state: ClassState }) {
           {a.kind === 'chat' && <ChatLive act={a} state={state} />}
         </>
       ) : (
-        <EmptyState kind="book" title="讲台还空着" hint="从左侧发起一幕，或在下方剧本里点「下一幕」——学生的屏幕会同步翻页。" />
+        <EmptyState kind="book" title="讲台还空着" hint="从左侧发起一幕，或在「剧本」里点「下一幕」——学生的屏幕会同步翻页。" />
       )}
     </section>
   );
@@ -726,6 +744,7 @@ function ScriptBoard({ state }: { state: ClassState }) {
     setClap(true);
     window.setTimeout(() => setClap(false), 420);
     play('paper');
+    if (id !== 'open') window.setTimeout(() => navigate('classroom/stage'), 420);
     if (id === 'poll') {
       const tp = POLL_TEMPLATES[0];
       void t.launch({ kind: 'poll', id: uid(), question: tp.question, options: tp.options, answer: tp.answer, startedAt: Date.now() });

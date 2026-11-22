@@ -11,6 +11,7 @@ import Classroom from './pages/Classroom';
 import Composer from './pages/Composer';
 import Curriculum from './pages/Curriculum';
 import Guardrails from './pages/Guardrails';
+import Home from './pages/Home';
 import Settings from './pages/Settings';
 import { useApp } from './store/AppContext';
 import { TeacherClassProvider } from './store/ClassroomContext';
@@ -57,36 +58,39 @@ function TeacherShell({ route, sub }: { route: RouteId; sub?: string }) {
     case 'curriculum':
       page = <Curriculum sub={sub} />;
       break;
+    case 'cockpit':
+      page = <Cockpit sub={sub} />;
+      break;
     case 'composer':
-      page = <Composer />;
+      page = <Composer sub={sub} />;
       break;
     case 'classroom':
-      page = <Classroom />;
+      page = <Classroom sub={sub} />;
       break;
     case 'labs':
       page = <Labs sub={sub} />;
       break;
     case 'arbitration':
-      page = <Arbitration />;
+      page = <Arbitration sub={sub} />;
       break;
     case 'assessment':
-      page = <Assessment />;
+      page = <Assessment sub={sub} />;
       break;
     case 'guardrails':
-      page = <Guardrails />;
+      page = <Guardrails sub={sub} />;
       break;
     case 'settings':
-      page = <Settings />;
+      page = <Settings sub={sub} />;
       break;
     default:
-      page = <Cockpit />;
+      page = <Home />;
   }
 
   return (
     <div className={`app ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar route={route} collapsed={collapsed} />
       <main className="main">
-        <TopBar route={route} collapsed={collapsed} onToggleSidebar={toggleSidebar} />
+        <TopBar route={route} sub={sub} collapsed={collapsed} onToggleSidebar={toggleSidebar} />
         <AiFreeCurtain on={aiFree} />
         <div className="content" key={route}>
           <Suspense fallback={<Loading />}>{page}</Suspense>

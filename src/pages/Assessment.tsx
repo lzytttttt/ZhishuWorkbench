@@ -1,7 +1,9 @@
 import { useState, type MouseEvent } from 'react';
 import { play } from '../fun/sound';
 import { Seal, useStamp } from '../fun/Stamp';
+import PageHeader from '../components/PageHeader';
 import RadarChart from '../components/RadarChart';
+import { pageMeta } from '../data/nav';
 import { RUBRIC, TRANSPARENCY } from '../data/rubric';
 import { describeError } from '../services/errors';
 import { heuristicScore } from '../services/evaluator/rubricEvaluators';
@@ -39,7 +41,8 @@ const SAMPLES = {
 
 const INITIAL = heuristicScore(SAMPLES.weak);
 
-export default function Assessment() {
+export default function Assessment({ sub }: { sub?: string }) {
+  const { item, tab, tabs } = pageMeta('assessment', sub);
   const { evaluator, config } = useServices();
   const [text, setText] = useState(SAMPLES.weak);
   const [pre, setPre] = useState<RubricScore>(INITIAL);
@@ -95,135 +98,149 @@ export default function Assessment() {
 
   return (
     <div className="page assess">
-      <header className="page-head">
-        <div>
-          <div className="eyebrow">DUAL RUBRICS · 过程性评价</div>
-          <h1 className="display sm">
-            双量规评价 <em>看过程，而不只看作品</em>
-          </h1>
-          <p className="lead">意图编程与提示词工程 15 分量规 + AI 使用透明度五级量表。AI 预评仅用于形成性反馈，总结性评分必须由教师终审。</p>
-        </div>
-      </header>
+      <PageHeader route="assessment" title={item.label} desc={tab.desc} tabs={tabs} active={tab.id} />
 
-      <div className="assess-grid">
-        <section className="panel prompt-in">
-          <div className="row">
-            <b>学生提交的提示词</b>
-            <div className="spacer" />
-            <button className="chip" onClick={() => setText(SAMPLES.weak)}>
-              示例：笼统指令
-            </button>
-            <button className="chip" onClick={() => setText(SAMPLES.strong)}>
-              示例：结构化指令
-            </button>
-          </div>
-          <textarea className="prompt-area mono" value={text} onChange={(e) => setText(e.target.value)} rows={16} />
-          <div className="row">
-            <button className="btn primary" onClick={runPre} disabled={evaluating}>
-              {evaluating ? '评估中…' : config.mode === 'remote' ? '⚡ 大模型形成性预评' : '⚡ 规则形成性预评'}
-            </button>
-            <span className="muted small">{teacherEdited ? '✎ 已由教师修订（终审）' : `${sourceLabel} · 请教师逐项确认（标 AI 的格子为预评建议）`}</span>
-          </div>
-          {pre.note && <p className="note">⚠ {pre.note}</p>}
-          {evalError && <p className="err small">{evalError}</p>}
-        </section>
-
-        <section className="panel score-panel">
-          <div className="radar-grow" key={scores.join('')}>
-            <RadarChart labels={RUBRIC.map((r) => `${r.id} ${r.name.slice(0, 4)}`)} values={scores} max={3} size={300} color={band.color} />
-          </div>
-          <div className="score-big" style={{ color: band.color }}>
-            <b className="mono">{total}</b>
-            <span>/ 15</span>
-          </div>
-          <div className="band" style={cv({ '--c': band.color })}>
-            <b>{band.name}</b>
-            <p>{band.desc}</p>
-          </div>
-          <button className={`btn ${total <= 8 ? '' : 'primary'} seal-btn`} onClick={seal}>
-            {total <= 8 ? '退回重构 · 盖章' : `终审 · 盖章（已确认 ${confirmed}/${RUBRIC.length}）`}
-          </button>
-          <div className="band-scale">
-            <span className={total <= 8 ? 'on' : ''}>≤8 重构</span>
-            <span className={total >= 9 && total <= 12 ? 'on' : ''}>9–12 迭代</span>
-            <span className={total >= 13 ? 'on' : ''}>13–15 严谨</span>
-          </div>
-        </section>
-      </div>
-
-      <section className="panel rubric">
-        <div className="rubric-grid">
-          <div className="rb-h">评估维度</div>
-          <div className="rb-h">待重构（1 分）</div>
-          <div className="rb-h">中等（2 分）</div>
-          <div className="rb-h">高水平（3 分）</div>
-          {RUBRIC.map((r, i) => (
-            <div key={r.id} className="rb-row" style={{ display: 'contents' }}>
-              <div className="rb-dim">
-                <span className="rb-id mono">{r.id}</span>
-                <b>{r.name}</b>
-                <small>{r.en}</small>
-                <p>{r.observe}</p>
-                {pre.rationale[i] && <p className="rb-why">预评依据：{pre.rationale[i]}</p>}
-              </div>
-              {r.levels.map((lv, k) => (
-                <button key={k} className={`rb-cell lv${k + 1} ${scores[i] === k + 1 ? 'on' : ''} ${final[i] && scores[i] === k + 1 ? 'final' : ''}`} onClick={() => setCell(i, k + 1)}>
-                  {lv}
-                  {pre.scores[i] === k + 1 && !(final[i] && scores[i] === k + 1) && (
-                    <span className="ghost-seal" title="AI 预评建议（幽灵章）：点一下格子即由教师终审">
-                      <Seal label="预评" size="xs" ghost />
-                    </span>
-                  )}
-                  {final[i] && scores[i] === k + 1 && (
-                    <span className="final-seal" title="教师终审">
-                      <Seal label="终审" size="xs" />
-                    </span>
-                  )}
+      <div className="tab-pane" key={tab.id}>
+        {tab.id === 'submit' && (
+          <div className="assess-grid">
+            <section className="panel prompt-in">
+              <div className="row">
+                <b>学生提交的提示词</b>
+                <div className="spacer" />
+                <button className="chip" onClick={() => setText(SAMPLES.weak)}>
+                  示例：笼统指令
                 </button>
-              ))}
-            </div>
-          ))}
-        </div>
-      </section>
+                <button className="chip" onClick={() => setText(SAMPLES.strong)}>
+                  示例：结构化指令
+                </button>
+              </div>
+              <textarea className="prompt-area mono" value={text} onChange={(e) => setText(e.target.value)} rows={16} />
+              <div className="row">
+                <button className="btn primary" onClick={runPre} disabled={evaluating}>
+                  {evaluating ? '评估中…' : config.mode === 'remote' ? '⚡ 大模型形成性预评' : '⚡ 规则形成性预评'}
+                </button>
+                <span className="muted small">{teacherEdited ? '✎ 已由教师修订（终审）' : `${sourceLabel} · 请教师逐项确认（标 AI 的格子为预评建议）`}</span>
+              </div>
+              {pre.note && <p className="note">⚠ {pre.note}</p>}
+              {evalError && <p className="err small">{evalError}</p>}
+            </section>
+            <section className="panel score-panel">
+              <div className="radar-grow" key={scores.join('')}>
+                <RadarChart labels={RUBRIC.map((r) => `${r.id} ${r.name.slice(0, 4)}`)} values={scores} max={3} size={300} color={band.color} />
+              </div>
+              <div className="score-big" style={{ color: band.color }}>
+                <b className="mono">{total}</b>
+                <span>/ 15</span>
+              </div>
+              <div className="band" style={cv({ '--c': band.color })}>
+                <b>{band.name}</b>
+                <p>{band.desc}</p>
+              </div>
+              <a className="btn primary seal-btn" href="#/assessment/rubric">
+                进入量规终审 →
+              </a>
+              <div className="band-scale">
+                <span className={total <= 8 ? 'on' : ''}>≤8 重构</span>
+                <span className={total >= 9 && total <= 12 ? 'on' : ''}>9–12 迭代</span>
+                <span className={total >= 13 ? 'on' : ''}>13–15 严谨</span>
+              </div>
+            </section>
+          </div>
+        )}
 
-      <section className="panel transparency">
-        <div className="section-title">
-          <span className="eyebrow">AI TRANSPARENCY · 百分制五级</span>
-          <h3>《AI 协作日志与人工重构说明》评价</h3>
-          <p className="muted">评分重点不再是 AI 生成的初稿本身，而是学生披露了什么、核查了什么、重构了什么。</p>
-        </div>
-        <div className="tr-grid">
-          <div className="thermo-h">
-            <div className="tr-bar stairs">
-              {TRANSPARENCY.slice()
-                .reverse()
-                .map((l, si) => (
-                  <div key={l.name} className={`tr-seg ${l === level ? 'on' : ''}`} style={{ flexGrow: l.max - l.min + 1, ...cv({ '--c': l.color, '--step': si }) }}>
-                    <b>{l.name}</b>
-                    <small>
-                      {l.min}–{l.max}
-                    </small>
+        {tab.id === 'rubric' && (
+          <>
+            <section className="panel rubric-summary" style={cv({ '--c': band.color })}>
+              <div className="rs-score">
+                <b className="mono">{total}</b>
+                <span>/ 15</span>
+              </div>
+              <div className="rs-band">
+                <b>{band.name}</b>
+                <small>{teacherEdited ? '✎ 已由教师修订' : `${sourceLabel} · 点选格子逐项终审`}</small>
+              </div>
+              <div className="spacer" />
+              <span className="muted small mono">
+                已确认 {confirmed}/{RUBRIC.length}
+              </span>
+              <button className={`btn ${total <= 8 ? '' : 'primary'}`} onClick={seal}>
+                {total <= 8 ? '退回重构 · 盖章' : '终审 · 盖章'}
+              </button>
+            </section>
+            <section className="panel rubric">
+              <div className="rubric-grid">
+                <div className="rb-h">评估维度</div>
+                <div className="rb-h">待重构（1 分）</div>
+                <div className="rb-h">中等（2 分）</div>
+                <div className="rb-h">高水平（3 分）</div>
+                {RUBRIC.map((r, i) => (
+                  <div key={r.id} className="rb-row" style={{ display: 'contents' }}>
+                    <div className="rb-dim">
+                      <span className="rb-id mono">{r.id}</span>
+                      <b>{r.name}</b>
+                      <small>{r.en}</small>
+                      <p>{r.observe}</p>
+                      {pre.rationale[i] && <p className="rb-why">预评依据：{pre.rationale[i]}</p>}
+                    </div>
+                    {r.levels.map((lv, k) => (
+                      <button key={k} className={`rb-cell lv${k + 1} ${scores[i] === k + 1 ? 'on' : ''} ${final[i] && scores[i] === k + 1 ? 'final' : ''}`} onClick={() => setCell(i, k + 1)}>
+                        {lv}
+                        {pre.scores[i] === k + 1 && !(final[i] && scores[i] === k + 1) && (
+                          <span className="ghost-seal" title="AI 预评建议（幽灵章）：点一下格子即由教师终审">
+                            <Seal label="预评" size="xs" ghost />
+                          </span>
+                        )}
+                        {final[i] && scores[i] === k + 1 && (
+                          <span className="final-seal" title="教师终审">
+                            <Seal label="终审" size="xs" />
+                          </span>
+                        )}
+                      </button>
+                    ))}
                   </div>
                 ))}
+              </div>
+            </section>
+          </>
+        )}
+
+        {tab.id === 'transparency' && (
+          <section className="panel transparency">
+            <div className="eyebrow pane-eyebrow">AI TRANSPARENCY · 百分制五级</div>
+            <div className="tr-grid">
+              <div className="thermo-h">
+                <div className="tr-bar stairs">
+                  {TRANSPARENCY.slice()
+                    .reverse()
+                    .map((l, si) => (
+                      <div key={l.name} className={`tr-seg ${l === level ? 'on' : ''}`} style={{ flexGrow: l.max - l.min + 1, ...cv({ '--c': l.color, '--step': si }) }}>
+                        <b>{l.name}</b>
+                        <small>
+                          {l.min}–{l.max}
+                        </small>
+                      </div>
+                    ))}
+                </div>
+                <input type="range" min={0} max={100} value={trans} onChange={(e) => setTrans(Number(e.target.value))} className="tr-range" />
+                <div className="tr-pointer mono" style={{ left: `${trans}%`, color: level.color }}>
+                  {trans}
+                </div>
+              </div>
+              <div className="tr-detail" style={cv({ '--c': level.color })}>
+                <div className="tr-level">
+                  <b>{level.name}</b>
+                  <small>{level.en}</small>
+                </div>
+                <p>{level.criteria}</p>
+                <div className="tr-role">
+                  <small>对应认知主权层级</small>
+                  <span>{level.role}</span>
+                </div>
+              </div>
             </div>
-            <input type="range" min={0} max={100} value={trans} onChange={(e) => setTrans(Number(e.target.value))} className="tr-range" />
-            <div className="tr-pointer mono" style={{ left: `${trans}%`, color: level.color }}>
-              {trans}
-            </div>
-          </div>
-          <div className="tr-detail" style={cv({ '--c': level.color })}>
-            <div className="tr-level">
-              <b>{level.name}</b>
-              <small>{level.en}</small>
-            </div>
-            <p>{level.criteria}</p>
-            <div className="tr-role">
-              <small>对应认知主权层级</small>
-              <span>{level.role}</span>
-            </div>
-          </div>
-        </div>
-      </section>
+          </section>
+        )}
+      </div>
     </div>
   );
 }

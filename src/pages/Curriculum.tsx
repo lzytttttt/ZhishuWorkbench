@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react';
+import PageHeader from '../components/PageHeader';
 import { EmptyState } from '../fun/LineArt';
 import { MARK_META, useLessonMarks, type MarkKind } from '../fun/marks';
 import { pressable } from '../fun/pressable';
@@ -6,15 +7,26 @@ import { play } from '../fun/sound';
 import { Seal, useStamp } from '../fun/Stamp';
 import { LABS, LESSONS, PART_MAP, PARTS, PHASE_MAP, PHASES, PROJECTS, TRACKS, type Lesson } from '../data/curriculum';
 import type { PartId } from '../data/types';
+import { pageMeta } from '../data/nav';
 import { navigate } from '../hooks/useHashRoute';
 import { useApp } from '../store/AppContext';
 import { cv } from '../utils/css';
 
+type View = 'matrix' | 'spiral' | 'list' | 'projects';
+const VIEWS: View[] = ['matrix', 'spiral', 'list', 'projects'];
+
 export default function Curriculum({ sub }: { sub?: string }) {
   const [part, setPart] = useState<PartId | 'all'>('all');
-  const [view, setView] = useState<'matrix' | 'spiral' | 'list'>('matrix');
   const [query, setQuery] = useState('');
+  // 分区来自地址；打开课程详情（#/curriculum/<课程 id>）时停留在上一个分区
+  const subView = VIEWS.find((v) => v === sub);
+  const [lastView, setLastView] = useState<View>(subView ?? 'matrix');
+  useEffect(() => {
+    if (subView) setLastView(subView);
+  }, [subView]);
+  const view: View = subView ?? lastView;
   const open = LESSONS.find((l) => l.id === sub);
+  const { item, tab, tabs } = pageMeta('curriculum', view);
 
   const lessons = useMemo(
     () =>
@@ -24,117 +36,109 @@ export default function Curriculum({ sub }: { sub?: string }) {
 
   return (
     <div className="page curriculum">
-      <header className="page-head">
-        <div>
-          <div className="eyebrow">SPIRAL CURRICULUM MATRIX</div>
-          <h1 className="display sm">
-            课程螺旋矩阵 <em>不按年级，按认知深度</em>
-          </h1>
-          <p className="lead">纵轴是“感知体验 → 提示词工程 → 上下文工程 → 工作流工程”的范式演进，横轴是“提问 → 探究 → 判断 → 创造”的螺旋认知环。</p>
-        </div>
-        <div className="head-tools">
-          <input className="search" placeholder="搜索课程 / 概念…" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <div className="segmented">
-            <button className={view === 'matrix' ? 'on' : ''} onClick={() => setView('matrix')}>
-              矩阵
-            </button>
-            <button className={view === 'spiral' ? 'on' : ''} onClick={() => setView('spiral')} title="把四条范式轨道卷成一条认知螺旋">
-              螺旋
-            </button>
-            <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>
-              列表
-            </button>
-          </div>
-        </div>
-      </header>
+      <PageHeader
+        route="curriculum"
+        title={item.label}
+        desc={tab.desc}
+        tabs={tabs}
+        active={view}
+        tools={view === 'projects' ? undefined : <input className="search" placeholder="搜索课程 / 概念…" value={query} onChange={(e) => setQuery(e.target.value)} />}
+      />
 
-      <div className="filters">
-        <button className={`chip ${part === 'all' ? 'on' : ''}`} onClick={() => setPart('all')}>
-          全部零件
-        </button>
-        {PARTS.map((p) => (
-          <button key={p.id} className={`chip marker ${part === p.id ? 'on' : ''}`} style={cv({ '--c': p.color })} onClick={() => setPart(p.id)}>
-            <i />
-            {p.name} <small>{p.en}</small>
-          </button>
-        ))}
+      <div className="tab-pane" key={view}>
+        {view === 'projects' ? (
+          <Projects />
+        ) : (
+          <>
+            <div className="filters">
+              <button className={`chip ${part === 'all' ? 'on' : ''}`} onClick={() => setPart('all')}>
+                全部零件
+              </button>
+              {PARTS.map((p) => (
+                <button key={p.id} className={`chip marker ${part === p.id ? 'on' : ''}`} style={cv({ '--c': p.color })} onClick={() => setPart(p.id)}>
+                  <i />
+                  {p.name} <small>{p.en}</small>
+                </button>
+              ))}
+            </div>
+
+            {view === 'matrix' ? (
+              <div className="matrix panel">
+                <div className="m-corner">
+                  <span>范式轨道 ↓</span>
+                  <span>螺旋阶段 →</span>
+                </div>
+                {PHASES.map((ph, i) => (
+                  <div key={ph.id} className="m-head" style={cv({ '--c': ph.color })}>
+                    <span className="idx">0{i + 1}</span>
+                    <b>{ph.name}</b>
+                    <small>
+                      {ph.en} · {ph.role}
+                    </small>
+                  </div>
+                ))}
+                {TRACKS.map((tr, ti) => (
+                  <MatrixRow key={tr.id} trackIndex={ti} lessons={lessons} />
+                ))}
+              </div>
+            ) : view === 'spiral' ? (
+              <SpiralView visible={new Set(lessons.map((l) => l.id))} />
+            ) : (
+              <div className="lesson-list">
+                {lessons.map((l) => (
+                  <LessonCard key={l.id} lesson={l} wide />
+                ))}
+                {!lessons.length && <EmptyState kind="magnifier" title="放大镜下什么也没找到" hint="换个关键词，或者清空零件筛选。" />}
+              </div>
+            )}
+
+            <RouteTray />
+          </>
+        )}
       </div>
 
-      <RouteTray />
+      {open && <LessonDrawer lesson={open} onClose={() => navigate(`curriculum/${view}`)} />}
+    </div>
+  );
+}
 
-      {view === 'matrix' ? (
-        <div className="matrix panel">
-          <div className="m-corner">
-            <span>范式轨道 ↓</span>
-            <span>螺旋阶段 →</span>
-          </div>
-          {PHASES.map((ph, i) => (
-            <div key={ph.id} className="m-head" style={cv({ '--c': ph.color })}>
-              <span className="idx">0{i + 1}</span>
-              <b>{ph.name}</b>
-              <small>
-                {ph.en} · {ph.role}
-              </small>
+/* ---------------- 跨学科项目 ---------------- */
+function Projects() {
+  return (
+    <div className="project-grid">
+      {PROJECTS.map((p) => (
+        <article key={p.id} className="project panel" style={cv({ '--c': PART_MAP[p.part].color })}>
+          <header>
+            <h4>{p.title}</h4>
+            <div className="disc">
+              {p.disciplines.map((d) => (
+                <span key={d} className="tag">
+                  {d}
+                </span>
+              ))}
             </div>
-          ))}
-          {TRACKS.map((tr, ti) => (
-            <MatrixRow key={tr.id} trackIndex={ti} lessons={lessons} />
-          ))}
-        </div>
-      ) : view === 'spiral' ? (
-        <SpiralView visible={new Set(lessons.map((l) => l.id))} />
-      ) : (
-        <div className="lesson-list">
-          {lessons.map((l) => (
-            <LessonCard key={l.id} lesson={l} wide />
-          ))}
-          {!lessons.length && <EmptyState kind="magnifier" title="放大镜下什么也没找到" hint="换个关键词，或者清空零件筛选。" />}
-        </div>
-      )}
-
-      <section className="projects">
-        <div className="section-title">
-          <span className="eyebrow">PROJECT-BASED LEARNING · 8 课时拓展</span>
-          <h3>跨学科项目：先跑起来，再回头学走路</h3>
-        </div>
-        <div className="project-grid">
-          {PROJECTS.map((p) => (
-            <article key={p.id} className="project panel" style={cv({ '--c': PART_MAP[p.part].color })}>
-              <header>
-                <h4>{p.title}</h4>
-                <div className="disc">
-                  {p.disciplines.map((d) => (
-                    <span key={d} className="tag">
-                      {d}
-                    </span>
-                  ))}
-                </div>
-              </header>
-              <ol className="steps">
-                {p.steps.map((s, i) => (
-                  <li key={i} className={`step ${s.aiFree ? 'aifree' : ''}`} style={cv({ '--c': PHASE_MAP[s.phase].color })}>
-                    <span className="step-phase">{PHASE_MAP[s.phase].name}</span>
-                    <span className="step-label">{s.label}</span>
-                    {s.aiFree && <span className="aifree-badge">AI-Free</span>}
-                  </li>
-                ))}
-              </ol>
-              <footer>
-                <div>
-                  <small>交付物</small>
-                  {p.deliverable}
-                </div>
-                <div>
-                  <small>防退化硬约束</small>
-                  {p.guard}
-                </div>
-              </footer>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      {open && <LessonDrawer lesson={open} onClose={() => navigate('curriculum')} />}
+          </header>
+          <ol className="steps">
+            {p.steps.map((s, i) => (
+              <li key={i} className={`step ${s.aiFree ? 'aifree' : ''}`} style={cv({ '--c': PHASE_MAP[s.phase].color })}>
+                <span className="step-phase">{PHASE_MAP[s.phase].name}</span>
+                <span className="step-label">{s.label}</span>
+                {s.aiFree && <span className="aifree-badge">AI-Free</span>}
+              </li>
+            ))}
+          </ol>
+          <footer>
+            <div>
+              <small>交付物</small>
+              {p.deliverable}
+            </div>
+            <div>
+              <small>防退化硬约束</small>
+              {p.guard}
+            </div>
+          </footer>
+        </article>
+      ))}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { navigate } from '../hooks/useHashRoute';
+import { useServices } from '../services/ServiceContext';
 import { cv } from '../utils/css';
 import { play } from './sound';
 import { useVitals, type VitalMode } from './vitals';
@@ -23,6 +24,8 @@ const LABEL: Record<VitalMode, string> = {
 
 export default function HeartRate() {
   const v = useVitals();
+  const { config } = useServices();
+  const modeText = config.mode === 'mock' ? 'Mock 模拟' : `真实接口 · ${config.defaultModel || '未配置模型'}`;
   const [defib, setDefib] = useState(false);
 
   useEffect(() => {
@@ -35,12 +38,12 @@ export default function HeartRate() {
 
   const period = v.bpm > 0 ? 60 / v.bpm : 1;
   const go = () => {
-    navigate('settings');
-    window.setTimeout(() => document.getElementById('call-log')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 420);
+    navigate('settings/log');
   };
 
   return (
-    <button className={`ecg ${v.mode} ${defib ? 'defib' : ''}`} onClick={go} aria-label={`认知心率 ${v.mode === 'flat' ? '平线' : `${v.bpm} bpm`}，${LABEL[v.mode]}。今日调用 ${v.calls} 次，拦截 ${v.blocked} 次。点击查看接口日志`}>
+    <button className={`ecg ${v.mode} ${defib ? 'defib' : ''}`} onClick={go} aria-label={`${modeText}。认知心率 ${v.mode === 'flat' ? '平线' : `${v.bpm} bpm`}，${LABEL[v.mode]}。今日调用 ${v.calls} 次，拦截 ${v.blocked} 次。点击查看接口日志`}>
+      <i className={`ecg-mode ${config.mode}`} aria-hidden />
       <svg className="ecg-svg" width="24" height="16" viewBox="0 0 24 16" aria-hidden>
         <g className="ecg-trace" style={cv({ '--period': `${v.mode === 'arrhythmia' ? period * 2 : period}s` })}>
           <path d={PATHS[v.mode]} />
@@ -51,6 +54,10 @@ export default function HeartRate() {
         <small>bpm</small>
       </span>
       <span className="ecg-tip" role="tooltip">
+        <span className="ecg-tip-mode">
+          <i className={`ecg-mode ${config.mode}`} aria-hidden />
+          {modeText}
+        </span>
         <b>认知心率 · {LABEL[v.mode]}</b>
         <span>
           今日调用 <em className="mono">{v.calls}</em> 次 · 拦截 <em className="mono">{v.blocked}</em> 次{v.errors ? ` · 失败 ${v.errors} 次` : ''}

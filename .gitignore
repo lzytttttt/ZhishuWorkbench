@@ -3,6 +3,7 @@ dist
 *.local
 .ui-backup/
 .fun-backup/
+.backup/
 .env.local
 .env.*.local
 .DS_Store

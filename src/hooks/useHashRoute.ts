@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 export type RouteId =
+  | 'home'
   | 'cockpit'
   | 'curriculum'
   | 'composer'
@@ -13,6 +14,7 @@ export type RouteId =
   | 'student';
 
 const ROUTES: RouteId[] = [
+  'home',
   'cockpit',
   'curriculum',
   'composer',
@@ -33,7 +35,7 @@ interface RouteState {
 function parse(): RouteState {
   const raw = window.location.hash.replace(/^#\/?/, '');
   const [head, sub] = raw.split('/');
-  const route = (ROUTES as string[]).includes(head) ? (head as RouteId) : 'cockpit';
+  const route = (ROUTES as string[]).includes(head) ? (head as RouteId) : 'home';
   return { route, sub: sub ? decodeURIComponent(sub) : undefined };
 }
 

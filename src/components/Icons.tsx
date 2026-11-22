@@ -14,6 +14,13 @@ const base = {
 export function NavIcon({ id, size = 22 }: { id: RouteId; size?: number }) {
   const common = { ...base, width: size, height: size };
   switch (id) {
+    case 'home':
+      return (
+        <svg {...common}>
+          <path d="M4 10.2 12 4l8 6.2V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" />
+          <path d="M9.6 20v-5.2h4.8V20" />
+        </svg>
+      );
     case 'cockpit':
       return (
         <svg {...common}>
